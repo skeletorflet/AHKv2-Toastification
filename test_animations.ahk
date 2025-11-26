@@ -6,7 +6,7 @@ Toastify.Start("dark", "top-right")
 
 ; Global config for demo
 Toastify.SetConfig({
-    width: 340,
+    width: 500,
     animDuration: 500
 })
 
@@ -225,7 +225,8 @@ ShowToast(*) {
 
     modeStr := saved.Permanent ? "Permanent (manual)" : (saved.ShowProgress ? "Timed with progress" : "Timed")
     Toastify.Show(title, body . "`nType: " . toastType . " | Theme: " . themeName . " | Anim: " . styleStr .
-        "`nEasing: " . easing . " | AnimDur: " . duration . "ms" . "`nMode: " . modeStr . " | Quality: " . saved.RenderQuality, [], opts)
+        "`nEasing: " . easing . " | AnimDur: " . duration . "ms" . "`nMode: " . modeStr . " | Quality: " . saved.RenderQuality,
+        [], opts)
 }
 
 HasValue(haystack, needle) {
