@@ -152,7 +152,8 @@ F11:: {
         icon: "info",
         duration: 4000,
         width: 360,
-        actions: [{ text: "OK", onClick: (*) => ToolTip("Custom action!", , , 1) }]
+        actions: [{ text: "OK", onClick: (*) => ToolTip("Custom action!", , , 1) }, { text: "OK", onClick: (*) =>
+            ToolTip("Custom action!", , , 1) }]
     })
 }
 
