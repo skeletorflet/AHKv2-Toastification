@@ -275,13 +275,17 @@ class Toastify {
     static marginX := 16
     static marginY := 16
     static spacing := 12
-    static position := "top-right"
+    static position := "top-right"  ; Deprecated, use alignment instead
+    static alignment := "topright"  ; Where toasts accumulate: topleft, top, topright, centerleft, center, centerright, bottomleft, bottom, bottomright
+    static stackDirection := "auto" ; How new toasts stack: top, bottom, left, right, center, auto
     static theme := "dark"
     static hoverPauseEnabled := true
     static maxToasts := 8 ; Maximum number of active toasts
 
     static __globalTimer := 0
     static __watchdogTimer := 0
+    static __mouseTimer := 0
+    static isShuttingDown := false
     static registry := Map() ; HWND -> {startTime, duration, instance}
     static config := ToastConfig()
 
@@ -310,7 +314,7 @@ class Toastify {
         ToastTheme.Register(name, palette)
     }
 
-    static Start(theme := "dark", position := "top-right") {
+    static Start(theme := "dark", alignment := "topright", stackDirection := "auto") {
         if !Toastify.pToken {
             pt := Gdip_Startup()
             if !pt {
@@ -337,17 +341,31 @@ class Toastify {
 
             ; Start Watchdog (Fast failsafe for stuck toasts)
             Toastify.__watchdogTimer := ObjBindMethod(Toastify, "__watchdogTick")
-            SetTimer(Toastify.__watchdogTimer, 100)  ; Check every 100ms (reduced from 500ms)
+            SetTimer(Toastify.__watchdogTimer, 200)  ; Check every 200ms (optimized from 100ms)
 
             ; Start Mouse Polling Timer for Hover Detection (More reliable than hook for layered windows)
             Toastify.__mouseTimer := ObjBindMethod(Toastify, "__mouseTimerTick")
-            SetTimer(Toastify.__mouseTimer, 50)  ; Check every 50ms
+            SetTimer(Toastify.__mouseTimer, 75)  ; Check every 75ms (optimized from 50ms)
         }
         Toastify.theme := theme
-        Toastify.position := position
+
+        ; Map old position values to new alignment for backward compatibility
+        if (alignment == "top-right")
+            alignment := "topright"
+        else if (alignment == "top-left")
+            alignment := "topleft"
+        else if (alignment == "bottom-right")
+            alignment := "bottomright"
+        else if (alignment == "bottom-left")
+            alignment := "bottomleft"
+
+        Toastify.alignment := alignment
+        Toastify.position := alignment  ; Keep for backward compatibility
+        Toastify.stackDirection := stackDirection
     }
 
     static Shutdown(*) {
+        Toastify.isShuttingDown := true
         if Toastify.__globalTimer
             SetTimer(Toastify.__globalTimer, 0)
         if Toastify.__watchdogTimer
@@ -383,6 +401,7 @@ class Toastify {
             Gdip_Shutdown(Toastify.pToken)
             Toastify.pToken := 0
         }
+        Toastify.isShuttingDown := false
     }
 
     ; ... (API Methods remain same) ...
@@ -506,24 +525,62 @@ class Toastify {
         ; Ensure defaults for properties managed by Toastify class
         if !opts.HasProp("theme")
             opts.theme := Toastify.theme
-        if !opts.HasProp("position")
-            opts.position := Toastify.position
+        if !opts.HasProp("alignment")
+            opts.alignment := Toastify.alignment
+        if !opts.HasProp("stackDirection")
+            opts.stackDirection := Toastify.stackDirection
 
-        ; Enforce Max Toasts Limit
-        if (Toastify.toasts.Length >= Toastify.maxToasts) {
-            ; Dismiss the oldest active toast to make room
-            ; We use index 1 because new toasts are pushed to the end
-            if (Toastify.toasts.Length > 0) {
-                oldestToast := Toastify.toasts[1]
-                oldestToast.StartExit()
+        ; Also set position for backward compatibility
+        if !opts.HasProp("position")
+            opts.position := opts.alignment
+
+        t := Toast(title, body, actions, opts)
+
+        alignment := t.HasProp("alignment") ? t.alignment : Toastify.alignment
+        stackDir := t.HasProp("stackDirection") ? t.stackDirection : Toastify.stackDirection
+        if (stackDir == "auto") {
+            if (alignment == "topleft" || alignment == "top" || alignment == "topright")
+                stackDir := "bottom"
+            else if (alignment == "bottomleft" || alignment == "bottom" || alignment == "bottomright")
+                stackDir := "top"
+            else if (alignment == "centerleft")
+                stackDir := "right"
+            else if (alignment == "centerright")
+                stackDir := "left"
+            else
+                stackDir := "bottom"
+        }
+
+        if (stackDir == "top" || stackDir == "bottom") {
+            capacity := Max(1, Floor((A_ScreenHeight - 2 * Toastify.marginY + Toastify.spacing) / (t.height + Toastify.spacing
+            )))
+        } else {
+            capacity := Max(1, Floor((A_ScreenWidth - 2 * Toastify.marginX + Toastify.spacing) / (t.width + Toastify.spacing
+            )))
+        }
+
+        count := 0
+        for i, prevToast in Toastify.toasts {
+            prevAlignment := prevToast.HasProp("alignment") ? prevToast.alignment : Toastify.alignment
+            if (prevAlignment == alignment)
+                count++
+        }
+        removals := Max(0, (count + 1) - capacity)
+        if (removals > 0) {
+            for i, prevToast in Toastify.toasts.Clone() {
+                if (removals <= 0)
+                    break
+                prevAlignment := prevToast.HasProp("alignment") ? prevToast.alignment : Toastify.alignment
+                if (prevAlignment == alignment) {
+                    prevToast.StartExit()
+                    removals--
+                }
             }
         }
 
-        t := Toast(title, body, actions, opts)
         Toastify.toasts.Push(t)
-        Toastify.__reflow(true) ; Animate existing ones to new positions
+        Toastify.__reflow(true)
 
-        ; Initialize Animation State AFTER reflow (so targetX/Y are set)
         t.InitAnimation()
         t.Draw()
         t.AnimateIn()
@@ -536,37 +593,115 @@ class Toastify {
         if (total = 0)
             return
 
-        ; We don't need to filter exiting toasts anymore because they are not in Toastify.toasts!
-
+        ; Process each toast (they might have different alignments)
         for idx, t in Toastify.toasts {
-            x := 0, y := 0
-            if (Toastify.position = "top-right") {
-                x := A_ScreenWidth - Toastify.marginX - t.width
-                y := Toastify.marginY + (idx - 1) * (t.height + Toastify.spacing)
-            } else if (Toastify.position = "bottom-right") {
-                x := A_ScreenWidth - Toastify.marginX - t.width
-                y := A_ScreenHeight - Toastify.marginY - (t.height) - (total - idx) * (t.height + Toastify.spacing)
-            } else if (Toastify.position = "top-left") {
-                x := Toastify.marginX
-                y := Toastify.marginY + (idx - 1) * (t.height + Toastify.spacing)
-            } else {
-                x := Toastify.marginX
-                y := A_ScreenHeight - Toastify.marginY - (t.height) - (total - idx) * (t.height + Toastify.spacing)
+            ; Get toast-specific alignment or use global default
+            alignment := t.HasProp("alignment") ? t.alignment : Toastify.alignment
+            stackDir := t.HasProp("stackDirection") ? t.stackDirection : Toastify.stackDirection
+
+            ; Auto-detect stack direction based on alignment
+            if (stackDir == "auto") {
+                if (alignment == "topleft" || alignment == "top" || alignment == "topright")
+                    stackDir := "bottom"  ; Top alignments stack downward
+                else if (alignment == "bottomleft" || alignment == "bottom" || alignment == "bottomright")
+                    stackDir := "top"     ; Bottom alignments stack upward
+                else if (alignment == "centerleft")
+                    stackDir := "right"   ; Center-left stacks rightward
+                else if (alignment == "centerright")
+                    stackDir := "left"    ; Center-right stacks leftward
+                else  ; center
+                    stackDir := "bottom"  ; Center stacks downward
             }
 
-            t.targetX := x
-            t.targetY := y
+            ; Calculate base anchor position for this alignment
+            anchorX := 0, anchorY := 0
+
+            switch alignment {
+                case "topleft":
+                    anchorX := Toastify.marginX
+                    anchorY := Toastify.marginY
+
+                case "top":
+                    anchorX := (A_ScreenWidth - t.width) / 2
+                    anchorY := Toastify.marginY
+
+                case "topright":
+                    anchorX := A_ScreenWidth - Toastify.marginX - t.width
+                    anchorY := Toastify.marginY
+
+                case "centerleft":
+                    anchorX := Toastify.marginX
+                    anchorY := (A_ScreenHeight - t.height) / 2
+
+                case "center":
+                    anchorX := (A_ScreenWidth - t.width) / 2
+                    anchorY := (A_ScreenHeight - t.height) / 2
+
+                case "centerright":
+                    anchorX := A_ScreenWidth - Toastify.marginX - t.width
+                    anchorY := (A_ScreenHeight - t.height) / 2
+
+                case "bottomleft":
+                    anchorX := Toastify.marginX
+                    anchorY := A_ScreenHeight - Toastify.marginY - t.height
+
+                case "bottom":
+                    anchorX := (A_ScreenWidth - t.width) / 2
+                    anchorY := A_ScreenHeight - Toastify.marginY - t.height
+
+                case "bottomright":
+                    anchorX := A_ScreenWidth - Toastify.marginX - t.width
+                    anchorY := A_ScreenHeight - Toastify.marginY - t.height
+            }
+
+            ; Calculate stack offset based on index and stack direction
+            ; We need to count how many toasts with the same alignment come before this one
+            stackIndex := 0
+            for i, prevToast in Toastify.toasts {
+                if (i >= idx)
+                    break
+                prevAlignment := prevToast.HasProp("alignment") ? prevToast.alignment : Toastify.alignment
+                if (prevAlignment == alignment)
+                    stackIndex++
+            }
+
+            offsetX := 0, offsetY := 0
+
+            switch stackDir {
+                case "top":
+                    offsetY := -stackIndex * (t.height + Toastify.spacing)
+
+                case "bottom":
+                    offsetY := stackIndex * (t.height + Toastify.spacing)
+
+                case "left":
+                    offsetX := -stackIndex * (t.width + Toastify.spacing)
+
+                case "right":
+                    offsetX := stackIndex * (t.width + Toastify.spacing)
+
+                case "center":
+                    ; Subtle offset to show layering
+                    offsetX := stackIndex * 2
+                    offsetY := stackIndex * 2
+            }
+
+            ; Final position
+            t.targetX := anchorX + offsetX
+            t.targetY := anchorY + offsetY
 
             if (!animate) {
-                t.currentX := x
-                t.currentY := y
+                t.currentX := t.targetX
+                t.currentY := t.targetY
                 if (t.hwnd)
-                    t.UpdateWindow(x, y)
+                    t.UpdateWindow(t.targetX, t.targetY)
             }
         }
     }
 
     static __globalTick(*) {
+        if (Toastify.isShuttingDown || Toastify.pToken = 0)
+            return
         ; === HIGH PERFORMANCE: Self-restart for precise timing ===
         ; Restart timer immediately for next frame (negative period = high priority)
         SetTimer(Toastify.__globalTimer, -16)
@@ -610,6 +745,12 @@ class Toastify {
     }
 
     static __mouseTimerTick(*) {
+        if (Toastify.isShuttingDown || Toastify.pToken = 0)
+            return
+        ; === PERFORMANCE: Early exit if no toasts to check ===
+        if (Toastify.toasts.Length == 0 && Toastify.exitingToasts.Length == 0)
+            return
+
         ; Poll mouse position and check against all toasts
         MouseGetPos(&x, &y)
 
@@ -978,8 +1119,14 @@ class ToastConfig {
     animEntrance := "auto" ; auto, right, left, top, bottom
 
     ; Graphics Quality
-    renderQuality := "High" ; Low, Medium, High
+    renderQuality := "Medium" ; Low, Medium, High - Medium provides best performance/quality balance
 
+    ; Hover Effects
+    hoverStyle := [] ; ["zoom", "brightness", "rotate"]
+    hoverScale := 1.05
+    hoverRotation := 2.0
+    hoverOpacity := 1.0
+    hoverBrightness := 0.15 ; 0.0 to 1.0 (white overlay opacity)
 }
 
 ; Initialize themes on load
@@ -993,7 +1140,9 @@ class Toast {
     height := 120
     duration := 3000
     theme := "dark"
-    position := "top-right"
+    position := "top-right"  ; Deprecated, use alignment
+    alignment := "topright"  ; Where this toast appears
+    stackDirection := "auto" ; How this toast stacks with others
     icon := ""
     showClose := true
     showProgress := true
@@ -1038,6 +1187,7 @@ class Toast {
     progressPaused := false
     progressPauseTime := 0
     lastProgress := 0.0 ; For redraw optimization
+    lastProgressDrawTime := 0 ; Timestamp of last progress bar redraw
 
     ; Watchdog
     creationTime := 0 ; Track creation time for watchdog
@@ -1064,6 +1214,25 @@ class Toast {
     iconSize := 32
     borderRadius := 18
     renderQuality := "High" ; Default
+
+    ; Hover Configuration
+    hoverStyle := []
+    hoverScale := 1.05
+    hoverRotation := 2.0
+    hoverOpacity := 1.0
+    hoverBrightness := 0.15
+
+    ; Hover State
+    currentBrightness := 0.0
+
+    ; Close Button Animation State
+    closeBtnScale := 1.0
+    closeBtnRotation := 0.0
+    closeBtnAlpha := 170 ; 0xAA
+
+    ; Performance Tracking
+    lastDrawTime := 0
+    lastHoverUpdate := 0
 
     __New(title, body, actions, opts) {
         this.title := title
@@ -1096,8 +1265,24 @@ class Toast {
                 this.duration := opts.duration
             if (opts.HasProp("theme"))
                 this.theme := opts.theme
-            if (opts.HasProp("position"))
-                this.position := opts.position
+            if (opts.HasProp("alignment"))
+                this.alignment := opts.alignment
+            if (opts.HasProp("stackDirection"))
+                this.stackDirection := opts.stackDirection
+            if (opts.HasProp("position")) {
+                ; Map old position to alignment for backward compatibility
+                if (opts.position == "top-right")
+                    this.alignment := "topright"
+                else if (opts.position == "top-left")
+                    this.alignment := "topleft"
+                else if (opts.position == "bottom-right")
+                    this.alignment := "bottomright"
+                else if (opts.position == "bottom-left")
+                    this.alignment := "bottomleft"
+                else
+                    this.alignment := opts.position
+            }
+            this.position := this.alignment  ; Keep in sync
             if (opts.HasProp("icon"))
                 this.icon := opts.icon
             if (opts.HasProp("showClose"))
@@ -1156,6 +1341,16 @@ class Toast {
                 if (!opts.HasProp("showProgress"))
                     this.showProgress := false
             }
+
+            ; Hover Options
+            this.hoverStyle := opts.HasProp("hoverStyle") ? opts.hoverStyle : Toastify.config.hoverStyle
+            if (Type(this.hoverStyle) == "String")
+                this.hoverStyle := [this.hoverStyle]
+
+            this.hoverScale := opts.HasProp("hoverScale") ? opts.hoverScale : Toastify.config.hoverScale
+            this.hoverRotation := opts.HasProp("hoverRotation") ? opts.hoverRotation : Toastify.config.hoverRotation
+            this.hoverOpacity := opts.HasProp("hoverOpacity") ? opts.hoverOpacity : Toastify.config.hoverOpacity
+            this.hoverBrightness := opts.HasProp("hoverBrightness") ? opts.hoverBrightness : Toastify.config.hoverBrightness
         }
 
         ; Initialize Animation State BEFORE first Draw to avoid flash
@@ -1172,16 +1367,61 @@ class Toast {
         this.gui.Show("NA")
         this.hwnd := this.gui.Hwnd
 
+        ; Ensure topmost z-order above other topmost windows
+        DllCall("user32\SetWindowPos", "ptr", this.hwnd, "ptr", -1, "int", 0, "int", 0, "int", 0, "int", 0,
+            "uint", 0x0001 | 0x0002 | 0x0010 | 0x0040)
+
+        ; === CALCULATE BUFFER SIZE ===
+        ; Determine maximum required size to avoid clipping during zoom/rotate
+        maxScale := 1.0
+
+        ; Check Hover Zoom
+        hasHoverZoom := false
+        for style in this.hoverStyle {
+            if (style == "zoom") {
+                hasHoverZoom := true
+                break
+            }
+        }
+        if (hasHoverZoom)
+            maxScale := Max(maxScale, this.hoverScale)
+
+        ; Check Rotation (Anim or Hover)
+        hasRotation := this.HasAnim("rotate")
+        if (!hasRotation) {
+            for style in this.hoverStyle {
+                if (style == "rotate") {
+                    hasRotation := true
+                    break
+                }
+            }
+        }
+
+        reqW := this.width * maxScale
+        reqH := this.height * maxScale
+
+        if (hasRotation) {
+            ; If rotation is involved, we need the diagonal size to be safe
+            diag := Sqrt(reqW ** 2 + reqH ** 2)
+            this.bufferWidth := Ceil(diag)
+            this.bufferHeight := Ceil(diag)
+        } else {
+            this.bufferWidth := Ceil(reqW)
+            this.bufferHeight := Ceil(reqH)
+        }
+
+        ; Add a little padding for anti-aliasing edges
+        this.bufferWidth += 4
+        this.bufferHeight += 4
+
         ; Window DC (Destination)
-        this.hbm := CreateDIBSection(this.width, this.height)
+        this.hbm := CreateDIBSection(this.bufferWidth, this.bufferHeight)
         this.hdc := CreateCompatibleDC()
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         Gdip_SetSmoothingMode(this.G, 4)
 
-        this.bufferWidth := this.width
-        this.bufferHeight := this.height
-
+        ; Create Cache Bitmap (Always original size)
         ; Create Cache Bitmap (Always original size)
         this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
         this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
@@ -1216,6 +1456,8 @@ class Toast {
     }
 
     Draw() {
+        if (!this.GCache || !this.pBitmapCache || !this.hdc)
+            return
         if (!this.cacheDirty && this.scale == 1.0) {
             ; If cache is clean and no scaling, just copy cache to window
             ; But if we have scaling, we need to RenderToWindow anyway
@@ -1338,18 +1580,19 @@ class Toast {
         Gdip_GraphicsClear(this.G, 0x00000000)
 
         ; Apply Quality Settings to Window Graphics
-        if (this.renderQuality = "Low") {
+        qual := ((this.animState == "in" || this.animState == "out") ? "Low" : this.renderQuality)
+        Gdip_SetCompositingMode(this.G, 0) ; SourceOver for proper alpha blending
+        if (qual = "Low") {
             Gdip_SetSmoothingMode(this.G, 1) ; HighSpeed
-            DllCall("gdiplus\GdipSetPixelOffsetMode", "ptr", this.G, "int", 1) ; HighSpeed
-            DllCall("gdiplus\GdipSetCompositingQuality", "ptr", this.G, "int", 1) ; HighSpeed
+            DllCall("gdiplus\GdipSetPixelOffsetMode", "ptr", this.G, "int", 2) ; HighQuality to avoid black edges
+            DllCall("gdiplus\GdipSetCompositingQuality", "ptr", this.G, "int", 2) ; HighQuality blending
             Gdip_SetInterpolationMode(this.G, 5) ; NearestNeighbor
-        } else if (this.renderQuality = "Medium") {
+        } else if (qual = "Medium") {
             Gdip_SetSmoothingMode(this.G, 4) ; AntiAlias
             DllCall("gdiplus\GdipSetPixelOffsetMode", "ptr", this.G, "int", 2) ; HighQuality
             DllCall("gdiplus\GdipSetCompositingQuality", "ptr", this.G, "int", 2) ; HighQuality
             Gdip_SetInterpolationMode(this.G, 6) ; HighQualityBilinear
         } else {
-            ; High Quality
             Gdip_SetSmoothingMode(this.G, 4) ; AntiAlias
             DllCall("gdiplus\GdipSetPixelOffsetMode", "ptr", this.G, "int", 2) ; HighQuality
             DllCall("gdiplus\GdipSetCompositingQuality", "ptr", this.G, "int", 2) ; HighQuality
@@ -1399,6 +1642,16 @@ class Toast {
             Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height
             )
 
+            ; Apply Warm Glow Brightness Overlay (if active)
+            if (this.currentBrightness > 0.01) {
+                ; Use warm amber/golden color for a pleasant glow effect
+                glowColor := 0xFFFFE5B4  ; Warm peach/amber color
+                alpha := Floor(this.currentBrightness * 120)  ; Reduced opacity for subtlety
+                pBrushGlow := Gdip_BrushCreateSolid((alpha << 24) | (glowColor & 0xFFFFFF))
+                Gdip_FillRoundedRectangle(this.G, pBrushGlow, drawX, drawY, this.width, this.height, this.borderRadius)
+                Gdip_DeleteBrush(pBrushGlow)
+            }
+
             Gdip_ResetWorldTransform(this.G)
             Gdip_DeleteMatrix(matrix)
 
@@ -1415,8 +1668,19 @@ class Toast {
             drawX := (this.bufferWidth - this.width) / 2
             drawY := (this.bufferHeight - this.height) / 2
 
+            ; Draw normally
             Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height
             )
+
+            ; Apply Warm Glow Brightness Overlay (if active)
+            if (this.currentBrightness > 0.01) {
+                ; Use warm amber/golden color for a pleasant glow effect
+                glowColor := 0xFFFFE5B4  ; Warm peach/amber color
+                alpha := Floor(this.currentBrightness * 120)  ; Reduced opacity for subtlety
+                pBrushGlow := Gdip_BrushCreateSolid((alpha << 24) | (glowColor & 0xFFFFFF))
+                Gdip_FillRoundedRectangle(this.G, pBrushGlow, drawX, drawY, this.width, this.height, this.borderRadius)
+                Gdip_DeleteBrush(pBrushGlow)
+            }
 
             winX := this.currentX - drawX
             winY := this.currentY - drawY
@@ -1499,19 +1763,29 @@ class Toast {
         closeX := this.width - this.paddingX - closeSize
         closeY := this.paddingY - 4
 
+        ; Expanded hit area for better accessibility (+10px padding)
+        hitPadding := 10
         this.clickRegions.Push({
-            x: closeX, y: closeY, w: closeSize, h: closeSize,
+            x: closeX - hitPadding,
+            y: closeY - hitPadding,
+            w: closeSize + (hitPadding * 2),
+            h: closeSize + (hitPadding * 2),
             cb: (*) => this.ForceClose(),
             type: "close"
         })
 
-        if (this.closeHovered) {
-            pBrushHover := Gdip_BrushCreateSolid(0x33FFFFFF)
-            Gdip_FillEllipse(this.GCache, pBrushHover, closeX - 2, closeY - 2, closeSize + 4, closeSize + 4)
-            Gdip_DeleteBrush(pBrushHover)
-        }
+        ; Calculate center of close button for transformations
+        centerX := closeX + closeSize / 2
+        centerY := closeY + closeSize / 2
 
-        color := this.closeHovered ? 0xFFFFFFFF : 0xAAFFFFFF
+        ; Apply Transformations for Close Button (Spin & Zoom)
+        Gdip_TranslateWorldTransform(this.GCache, centerX, centerY, 0)
+        Gdip_RotateWorldTransform(this.GCache, this.closeBtnRotation, 0)
+        Gdip_ScaleWorldTransform(this.GCache, this.closeBtnScale, this.closeBtnScale, 0)
+        Gdip_TranslateWorldTransform(this.GCache, -centerX, -centerY, 0)
+
+        ; Draw X
+        color := (Floor(this.closeBtnAlpha) << 24) | 0xFFFFFF
         pPen := Gdip_CreatePen(color, 2)
         offset := 6
         Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY +
@@ -1521,6 +1795,9 @@ class Toast {
             closeSize -
             offset)
         Gdip_DeletePen(pPen)
+
+        ; Reset Transform
+        Gdip_ResetWorldTransform(this.GCache)
     }
 
     DrawProgressBar(pal) {
@@ -1565,9 +1842,7 @@ class Toast {
 
         if (this.HasAnim("rotate")) {
             this.rotation := -90.0 ; Start rotated
-            ; Resize buffer to accommodate rotation
-            diag := Sqrt(this.width ** 2 + this.height ** 2)
-            this.ResizeBuffer(Ceil(diag), Ceil(diag))
+            ; Buffer resizing is now handled in __createWindow
         }
 
         ; Calculate Start Position
@@ -1577,14 +1852,20 @@ class Toast {
         if (this.HasAnim("slide")) {
             entrance := this.animEntrance
             if (entrance == "auto") {
-                if (this.position == "top-right" || this.position == "bottom-right")
-                    entrance := "right"
-                else if (this.position == "top-left" || this.position == "bottom-left")
-                    entrance := "left"
-                else if (this.position == "top-center")
-                    entrance := "top"
-                else
-                    entrance := "bottom"
+                ; Auto-detect entrance direction based on alignment
+                switch this.alignment {
+                    case "topleft", "top", "topright":
+                        entrance := "top"     ; Slide from top
+                    case "bottomleft", "bottom", "bottomright":
+                        entrance := "bottom"  ; Slide from bottom
+                    case "centerleft":
+                        entrance := "left"    ; Slide from left
+                    case "centerright":
+                        entrance := "right"   ; Slide from right
+                    case "center":
+                        ; For center, default to zoom/fade if available, otherwise top
+                        entrance := this.HasAnim("zoom") ? "none" : "top"
+                }
             }
 
             if (entrance == "right")
@@ -1619,6 +1900,10 @@ class Toast {
 
     Tick() {
         if (!this.hwnd)
+            return
+
+        ; === PERFORMANCE: Early exit for invisible toasts ===
+        if (this.opacity < 0.01 && this.animState != "in")
             return
 
         now := A_TickCount
@@ -1658,14 +1943,19 @@ class Toast {
 
                         entrance := this.animEntrance
                         if (entrance == "auto") {
-                            if (this.position == "top-right" || this.position == "bottom-right")
-                                entrance := "right"
-                            else if (this.position == "top-left" || this.position == "bottom-left")
-                                entrance := "left"
-                            else if (this.position == "top-center")
-                                entrance := "top"
-                            else
-                                entrance := "bottom"
+                            ; Auto-detect entrance direction based on alignment
+                            switch this.alignment {
+                                case "topleft", "top", "topright":
+                                    entrance := "top"
+                                case "bottomleft", "bottom", "bottomright":
+                                    entrance := "bottom"
+                                case "centerleft":
+                                    entrance := "left"
+                                case "centerright":
+                                    entrance := "right"
+                                case "center":
+                                    entrance := this.HasAnim("zoom") ? "none" : "top"
+                            }
                         }
 
                         offX := 0, offY := 0
@@ -1720,14 +2010,19 @@ class Toast {
                     if (this.HasAnim("slide")) {
                         entrance := this.animEntrance
                         if (entrance == "auto") {
-                            if (this.position == "top-right" || this.position == "bottom-right")
-                                entrance := "right"
-                            else if (this.position == "top-left" || this.position == "bottom-left")
-                                entrance := "left"
-                            else if (this.position == "top-center")
-                                entrance := "top"
-                            else
-                                entrance := "bottom"
+                            ; Auto-detect entrance direction based on alignment
+                            switch this.alignment {
+                                case "topleft", "top", "topright":
+                                    entrance := "top"
+                                case "bottomleft", "bottom", "bottomright":
+                                    entrance := "bottom"
+                                case "centerleft":
+                                    entrance := "left"
+                                case "centerright":
+                                    entrance := "right"
+                                case "center":
+                                    entrance := this.HasAnim("zoom") ? "none" : "top"
+                            }
                         }
 
                         ; Reverse direction for exit
@@ -1782,6 +2077,84 @@ class Toast {
                 }
             }
         } else if (this.animState == "idle") {
+
+            ; === HOVER EFFECTS INTERPOLATION ===
+            ; OPTIMIZATION: Only update hover effects at reduced rate during idle state
+            now := A_TickCount
+            if (now - this.lastHoverUpdate < 16) {
+                ; Skip this frame for hover effects (cap at ~60 FPS)
+            } else {
+                this.lastHoverUpdate := now
+
+                targetS := 1.0
+                targetR := 0.0
+                targetO := 1.0
+                targetB := 0.0
+
+                if (this.hovered) {
+                    for style in this.hoverStyle {
+                        if (style == "zoom")
+                            targetS := this.hoverScale
+                        else if (style == "rotate")
+                            targetR := this.hoverRotation
+                        else if (style == "opacity")
+                            targetO := this.hoverOpacity
+                        else if (style == "brightness")
+                            targetB := this.hoverBrightness
+                    }
+                }
+
+                ; Smoothly interpolate values
+                diffS := targetS - this.scale
+                diffR := targetR - this.rotation
+                diffO := targetO - this.opacity
+                diffB := targetB - this.currentBrightness
+
+                if (Abs(diffS) > 0.001 || Abs(diffR) > 0.1 || Abs(diffO) > 0.01 || Abs(diffB) > 0.01) {
+                    this.scale += diffS * 0.2
+                    this.rotation += diffR * 0.2
+                    this.opacity += diffO * 0.2
+                    this.currentBrightness += diffB * 0.2
+                    this.RenderToWindow() ; Redraw with new transform/effects
+                    dirty := true
+                } else {
+                    ; Snap to target if close enough
+                    this.scale := targetS
+                    this.rotation := targetR
+                    this.opacity := targetO
+                    this.currentBrightness := targetB
+                }
+            }
+
+            ; === CLOSE BUTTON ANIMATION ===
+            ; OPTIMIZATION: Batch close button updates with hover effects
+            targetCS := this.closeHovered ? 1.3 : 1.0
+            targetCR := this.closeHovered ? 90.0 : 0.0
+            targetCA := this.closeHovered ? 255.0 : 170.0
+
+            diffCS := targetCS - this.closeBtnScale
+            diffCR := targetCR - this.closeBtnRotation
+            diffCA := targetCA - this.closeBtnAlpha
+
+            ; OPTIMIZATION: Only redraw if visual change is significant
+            if (Abs(diffCS) > 0.02 || Abs(diffCR) > 2.0 || Abs(diffCA) > 5.0) {
+                this.closeBtnScale += diffCS * 0.25
+                this.closeBtnRotation += diffCR * 0.2
+                this.closeBtnAlpha += diffCA * 0.2
+
+                ; OPTIMIZATION: Throttle Draw() calls - max once per 16ms
+                if (A_TickCount - this.lastDrawTime > 16) {
+                    this.cacheDirty := true
+                    this.Draw()
+                    this.lastDrawTime := A_TickCount
+                    dirty := true
+                }
+            } else {
+                this.closeBtnScale := targetCS
+                this.closeBtnRotation := targetCR
+                this.closeBtnAlpha := targetCA
+            }
+
             if (Abs(this.currentX - this.targetX) > 0.5 || Abs(this.currentY - this.targetY) > 0.5) {
                 this.currentX += (this.targetX - this.currentX) * 0.2
                 this.currentY += (this.targetY - this.currentY) * 0.2
@@ -1792,7 +2165,7 @@ class Toast {
             }
         }
 
-        ; --- 2. Progress Bar Animation --- [OPTIMIZED FOR IMMEDIATE EXIT]
+        ; --- 2. Progress Bar Animation --- [HEAVILY OPTIMIZED]
         if (this.showProgress && this.duration > 0 && this.animState != "out") {
             if (!this.progressPaused) {
                 if (now >= this.progressStartTime) {
@@ -1803,9 +2176,21 @@ class Toast {
                     if (newProgress != this.progress) {
                         this.progress := newProgress
 
-                        ; Only redraw if change is visible (optimization), BUT always redraw at 100%
-                        if (Abs(newProgress - this.lastProgress) > 0.005 || newProgress >= 1.0) {
+                        ; === Smooth Progress Redraw ===
+                        ; Redraw when:
+                        ; 1. Visual delta >= ~0.5px (adaptive by bar width)
+                        ; 2. OR ~16ms elapsed (target ~60 FPS)
+                        ; 3. OR reaching 100%
+                        timeSinceLastDraw := now - this.lastProgressDrawTime
+                        barWidth := this.width - 16
+                        thresholdProgress := Max(0.0005, 0.5 / barWidth)
+                        significantChange := Abs(newProgress - this.lastProgress) > thresholdProgress
+                        timeForUpdate := timeSinceLastDraw > 16
+                        isComplete := newProgress >= 1.0
+
+                        if (significantChange || timeForUpdate || isComplete) {
                             this.lastProgress := newProgress
+                            this.lastProgressDrawTime := now
                             this.cacheDirty := true  ; Force cache redraw for progress bar
                             this.Draw()  ; Redraw to update progress bar
                             dirty := true
@@ -1818,6 +2203,7 @@ class Toast {
                         ; Ensure final draw at exactly 100% happened
                         if (this.lastProgress < 1.0) {
                             this.lastProgress := 1.0
+                            this.lastProgressDrawTime := now
                             this.cacheDirty := true
                             this.Draw()  ; Final draw at 100%
                             dirty := true
@@ -1895,6 +2281,19 @@ class Toast {
     OnMouseMove(x, y) {
         if (this.userInitiatedExit || this.animState == "out")
             return
+
+        ; Fix Hit Testing: Adjust for scale
+        ; If toast is scaled (zoom effect), the mouse coordinates need to be mapped back to bitmap space
+        if (this.scale != 1.0 && this.scale > 0) {
+            ; Center of toast is the pivot
+            cx := this.width / 2
+            cy := this.height / 2
+
+            ; Translate to center, unscale, translate back
+            x := (x - cx) / this.scale + cx
+            y := (y - cy) / this.scale + cy
+        }
+
         wasHovered := this.hovered
         this.hovered := true
 
@@ -1949,8 +2348,20 @@ class Toast {
     OnClick(x, y) {
         offsetX := (this.bufferWidth > this.width) ? (this.bufferWidth - this.width) / 2 : 0
         offsetY := (this.bufferHeight > this.height) ? (this.bufferHeight - this.height) / 2 : 0
-        cx := x - offsetX
-        cy := y - offsetY
+
+        realX := x - offsetX
+        realY := y - offsetY
+
+        ; Fix Hit Testing for Click: Adjust for scale
+        if (this.scale != 1.0 && this.scale > 0) {
+            cx := this.width / 2
+            cy := this.height / 2
+            realX := (realX - cx) / this.scale + cx
+            realY := (realY - cy) / this.scale + cy
+        }
+
+        cx := realX
+        cy := realY
         clickedRegion := false
         for r in this.clickRegions {
             if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) {
