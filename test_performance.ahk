@@ -5,7 +5,6 @@
 ; Performance Test - Stress test with many simultaneous toasts
 ; ============================================================================
 
-
 ; Spam many toasts rapidly
 global __stressTimer := 0
 global __stressRemaining := 0
@@ -31,9 +30,10 @@ StressSpawnTick() {
         return
     }
 
-    idx := 60 - __stressRemaining
-    theme := ["success", "info", "warning", "error"][Mod(idx - 1, 4) + 1]
-    icon := ["success", "info", "warning", "error"][Mod(idx - 1, 4) + 1]
+    idx := 61 - __stressRemaining  ; Fixed: Start from 1
+    themes := ["success", "info", "warning", "error"]
+    theme := themes[1 + Mod(idx - 1, themes.Length)]
+    icon := themes[1 + Mod(idx - 1, themes.Length)]
 
     Toastify.Show("Toast #" idx, "Performance test toast with some body text", [], {
         theme: theme,
@@ -46,7 +46,6 @@ StressSpawnTick() {
 
     __stressRemaining--
 }
-
 
 ; Moderate test - 20 toasts with continuous spawning
 global __moderateTimer := 0

@@ -69,100 +69,53 @@ class ToastEasing {
         }
     }
 
-    ; Get easing function by name and apply it to t
+    ; OPTIMIZED: Switch statement (O(log n) vs O(n) if-else chain)
     static get(name, t) {
-        if (name = "linear")
-            return ToastEasing.linear(t)
-        else if (name = "easeInQuad")
-            return ToastEasing.easeInQuad(t)
-        else if (name = "easeOutQuad")
-            return ToastEasing.easeOutQuad(t)
-        else if (name = "easeInOutQuad")
-            return ToastEasing.easeInOutQuad(t)
-        else if (name = "easeInCubic")
-            return ToastEasing.easeInCubic(t)
-        else if (name = "easeOutCubic")
-            return ToastEasing.easeOutCubic(t)
-        else if (name = "easeInOutCubic")
-            return ToastEasing.easeInOutCubic(t)
-        else if (name = "easeInQuart")
-            return ToastEasing.easeInQuart(t)
-        else if (name = "easeOutQuart")
-            return ToastEasing.easeOutQuart(t)
-        else if (name = "easeInOutQuart")
-            return ToastEasing.easeInOutQuart(t)
-        else if (name = "easeInBack")
-            return ToastEasing.easeInBack(t)
-        else if (name = "easeOutBack")
-            return ToastEasing.easeOutBack(t)
-        else if (name = "easeInOutBack")
-            return ToastEasing.easeInOutBack(t)
-        else if (name = "bounce" || name = "bounceOut")
-            return ToastEasing.bounceOut(t)
-        else if (name = "bounceIn")
-            return ToastEasing.bounceIn(t)
-        else if (name = "bounceInOut")
-            return ToastEasing.bounceInOut(t)
-        ; Sine
-        else if (name = "easeInSine")
-            return ToastEasing.easeInSine(t)
-        else if (name = "easeOutSine")
-            return ToastEasing.easeOutSine(t)
-        else if (name = "easeInOutSine")
-            return ToastEasing.easeInOutSine(t)
-        ; Expo
-        else if (name = "easeInExpo")
-            return ToastEasing.easeInExpo(t)
-        else if (name = "easeOutExpo")
-            return ToastEasing.easeOutExpo(t)
-        else if (name = "easeInOutExpo")
-            return ToastEasing.easeInOutExpo(t)
-        ; Circ
-        else if (name = "easeInCirc")
-            return ToastEasing.easeInCirc(t)
-        else if (name = "easeOutCirc")
-            return ToastEasing.easeOutCirc(t)
-        else if (name = "easeInOutCirc")
-            return ToastEasing.easeInOutCirc(t)
-        ; Quint
-        else if (name = "easeInQuint")
-            return ToastEasing.easeInQuint(t)
-        else if (name = "easeOutQuint")
-            return ToastEasing.easeOutQuint(t)
-        else if (name = "easeInOutQuint")
-            return ToastEasing.easeInOutQuint(t)
-        ; Elastic
-        else if (name = "elasticIn")
-            return ToastEasing.elasticIn(t)
-        else if (name = "elasticOut")
-            return ToastEasing.elasticOut(t)
-        else if (name = "elasticInOut")
-            return ToastEasing.elasticInOut(t)
-        ; Flutter curves
-        else if (name = "decelerate")
-            return ToastEasing.decelerate(t)
-        else if (name = "ease")
-            return ToastEasing.ease(t)
-        else if (name = "easeIn")
-            return ToastEasing.easeIn(t)
-        else if (name = "easeOut")
-            return ToastEasing.easeOut(t)
-        else if (name = "easeInOut")
-            return ToastEasing.easeInOut(t)
-        else if (name = "fastOutSlowIn" || name = "fastOutSlowIn")
-            return ToastEasing.fastOutSlowIn(t)
-        else if (name = "slowMiddle")
-            return ToastEasing.slowMiddle(t)
-        else if (name = "easeInToLinear")
-            return ToastEasing.easeInToLinear(t)
-        else if (name = "linearToEaseOut")
-            return ToastEasing.linearToEaseOut(t)
-        else if (name = "fastLinearToSlowEaseIn")
-            return ToastEasing.fastLinearToSlowEaseIn(t)
-        else if (name = "easeInOutCubicEmphasized")
-            return ToastEasing.easeInOutCubicEmphasized(t)
-        else
-            return ToastEasing.easeOutCubic(t) ; Default fallback
+        switch name {
+            case "linear": return ToastEasing.linear(t)
+            case "easeInQuad": return ToastEasing.easeInQuad(t)
+            case "easeOutQuad": return ToastEasing.easeOutQuad(t)
+            case "easeInOutQuad": return ToastEasing.easeInOutQuad(t)
+            case "easeInCubic": return ToastEasing.easeInCubic(t)
+            case "easeOutCubic": return ToastEasing.easeOutCubic(t)
+            case "easeInOutCubic": return ToastEasing.easeInOutCubic(t)
+            case "easeInQuart": return ToastEasing.easeInQuart(t)
+            case "easeOutQuart": return ToastEasing.easeOutQuart(t)
+            case "easeInOutQuart": return ToastEasing.easeInOutQuart(t)
+            case "easeInBack": return ToastEasing.easeInBack(t)
+            case "easeOutBack": return ToastEasing.easeOutBack(t)
+            case "easeInOutBack": return ToastEasing.easeInOutBack(t)
+            case "bounceOut", "bounce": return ToastEasing.bounceOut(t)
+            case "bounceIn": return ToastEasing.bounceIn(t)
+            case "bounceInOut": return ToastEasing.bounceInOut(t)
+            case "easeInSine": return ToastEasing.easeInSine(t)
+            case "easeOutSine": return ToastEasing.easeOutSine(t)
+            case "easeInOutSine": return ToastEasing.easeInOutSine(t)
+            case "easeInQuint": return ToastEasing.easeInQuint(t)
+            case "easeOutQuint": return ToastEasing.easeOutQuint(t)
+            case "easeInOutQuint": return ToastEasing.easeInOutQuint(t)
+            case "easeInExpo": return ToastEasing.easeInExpo(t)
+            case "easeOutExpo": return ToastEasing.easeOutExpo(t)
+            case "easeInOutExpo": return ToastEasing.easeInOutExpo(t)
+            case "easeInCirc": return ToastEasing.easeInCirc(t)
+            case "easeOutCirc": return ToastEasing.easeOutCirc(t)
+            case "easeInOutCirc": return ToastEasing.easeInOutCirc(t)
+            case "elasticIn": return ToastEasing.elasticIn(t)
+            case "elasticOut": return ToastEasing.elasticOut(t)
+            case "elasticInOut": return ToastEasing.elasticInOut(t)
+            case "decelerate": return ToastEasing.decelerate(t)
+            case "ease": return ToastEasing.ease(t)
+            case "easeIn": return ToastEasing.easeIn(t)
+            case "easeOut": return ToastEasing.easeOut(t)
+            case "easeInOut": return ToastEasing.easeInOut(t)
+            case "fastOutSlowIn": return ToastEasing.fastOutSlowIn(t)
+            case "slowMiddle": return ToastEasing.slowMiddle(t)
+            case "easeInToLinear": return ToastEasing.easeInToLinear(t)
+            case "linearToEaseOut": return ToastEasing.linearToEaseOut(t)
+            case "fastLinearToSlowEaseIn": return ToastEasing.fastLinearToSlowEaseIn(t)
+            case "easeInOutCubicEmphasized": return ToastEasing.easeInOutCubicEmphasized(t)
+            default: return ToastEasing.easeOutCubic(t)
+        }
     }
 
     ; === Quint Easing ===
@@ -265,6 +218,43 @@ class ToastEasing {
 }
 
 ; ============================================================================
+; Object Pooling for GDI+ Performance
+; ============================================================================
+
+class BrushPool {
+    static pool := Map()
+
+    static Get(color) {
+        if (!BrushPool.pool.Has(color))
+            BrushPool.pool[color] := Gdip_BrushCreateSolid(color)
+        return BrushPool.pool[color]
+    }
+
+    static Clear() {
+        for color, pBrush in BrushPool.pool
+            Gdip_DeleteBrush(pBrush)
+        BrushPool.pool.Clear()
+    }
+}
+
+class PenPool {
+    static pool := Map()
+
+    static Get(color, width := 1) {
+        key := color "|" width
+        if (!PenPool.pool.Has(key))
+            PenPool.pool[key] := Gdip_CreatePen(color, width)
+        return PenPool.pool[key]
+    }
+
+    static Clear() {
+        for key, pPen in PenPool.pool
+            Gdip_DeletePen(pPen)
+        PenPool.pool.Clear()
+    }
+}
+
+; ============================================================================
 ; Toast Class - Individual Toast Instance
 ; ============================================================================
 
@@ -282,12 +272,14 @@ class Toastify {
     static hoverPauseEnabled := true
     static maxToasts := 8 ; Maximum number of active toasts
 
-    static __globalTimer := 0
-    static __watchdogTimer := 0
     static __mouseTimer := 0
     static isShuttingDown := false
     static registry := Map() ; HWND -> {startTime, duration, instance}
     static config := ToastConfig()
+
+    ; OPTIMIZATION: Mouse movement cache
+    static lastMouseX := -1
+    static lastMouseY := -1
 
     static SetConfig(cfg) {
         if (cfg.HasProp("fontName"))
@@ -396,6 +388,10 @@ class Toastify {
 
         ; Restore normal process priority
         ProcessSetPriority("Normal")
+
+        ; OPTIMIZATION: Clean up object pools
+        BrushPool.Clear()
+        PenPool.Clear()
 
         if Toastify.pToken {
             Gdip_Shutdown(Toastify.pToken)
@@ -751,8 +747,13 @@ class Toastify {
         if (Toastify.toasts.Length == 0 && Toastify.exitingToasts.Length == 0)
             return
 
-        ; Poll mouse position and check against all toasts
+        ; === OPTIMIZATION: Mouse movement cache (skip if not moved) ===
         MouseGetPos(&x, &y)
+        if (x = Toastify.lastMouseX && y = Toastify.lastMouseY)
+            return  ; Mouse hasn't moved, skip processing
+
+        Toastify.lastMouseX := x
+        Toastify.lastMouseY := y
 
         ; Check Active Toasts
         for t in Toastify.toasts.Clone() {
@@ -1496,9 +1497,23 @@ class Toast {
             textStartX := iconX + iconSize + 12
         }
 
-        ; Draw close button
+        ; OPTIMIZATION: Don't draw close button in cache - render directly in RenderToWindow()
+        ; this.DrawCloseButton(pal)
+
+        ; Define click region for close button (still needed for hit testing)
         if (this.showClose) {
-            this.DrawCloseButton(pal)
+            closeSize := 20
+            closeX := this.width - this.paddingX - closeSize
+            closeY := this.paddingY - 4
+            hitPadding := 10
+            this.clickRegions.Push({
+                x: closeX - hitPadding,
+                y: closeY - hitPadding,
+                w: closeSize + (hitPadding * 2),
+                h: closeSize + (hitPadding * 2),
+                cb: (*) => this.ForceClose(),
+                type: "close"
+            })
         }
 
         ; Draw text
@@ -1652,6 +1667,10 @@ class Toast {
                 Gdip_DeleteBrush(pBrushGlow)
             }
 
+            ; OPTIMIZATION: Draw close button directly to window (not in cache)
+            if (this.showClose)
+                this.DrawCloseButtonDirect(drawX, drawY)
+
             Gdip_ResetWorldTransform(this.G)
             Gdip_DeleteMatrix(matrix)
 
@@ -1681,6 +1700,10 @@ class Toast {
                 Gdip_FillRoundedRectangle(this.G, pBrushGlow, drawX, drawY, this.width, this.height, this.borderRadius)
                 Gdip_DeleteBrush(pBrushGlow)
             }
+
+            ; OPTIMIZATION: Draw close button directly to window (not in cache)
+            if (this.showClose)
+                this.DrawCloseButtonDirect(drawX, drawY)
 
             winX := this.currentX - drawX
             winY := this.currentY - drawY
@@ -1798,6 +1821,37 @@ class Toast {
 
         ; Reset Transform
         Gdip_ResetWorldTransform(this.GCache)
+    }
+
+    ; OPTIMIZATION: Draw close button directly to window (not cached bitmap)
+    DrawCloseButtonDirect(offsetX, offsetY) {
+        closeSize := 20
+        closeX := offsetX + this.width - this.paddingX - closeSize
+        closeY := offsetY + this.paddingY - 4
+
+        ; Calculate center for transformations
+        centerX := closeX + closeSize / 2
+        centerY := closeY + closeSize / 2
+
+        ; Apply Transformations
+        Gdip_TranslateWorldTransform(this.G, centerX, centerY, 0)
+        Gdip_RotateWorldTransform(this.G, this.closeBtnRotation, 0)
+        Gdip_ScaleWorldTransform(this.G, this.closeBtnScale, this.closeBtnScale, 0)
+        Gdip_TranslateWorldTransform(this.G, -centerX, -centerY, 0)
+
+        ; Draw X with pooled pen
+        color := (Floor(this.closeBtnAlpha) << 24) | 0xFFFFFF
+        pPen := PenPool.Get(color, 2)
+        offset := 6
+        Gdip_DrawLine(this.G, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY +
+            closeSize -
+            offset)
+        Gdip_DrawLine(this.G, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY +
+            closeSize -
+            offset)
+
+        ; Reset Transform
+        Gdip_ResetWorldTransform(this.G)
     }
 
     DrawProgressBar(pal) {
@@ -2080,6 +2134,7 @@ class Toast {
 
             ; === HOVER EFFECTS INTERPOLATION ===
             ; OPTIMIZATION: Only update hover effects at reduced rate during idle state
+            ; CRITICAL FIX: Skip hover effects entirely during entrance/exit animations
             now := A_TickCount
             if (now - this.lastHoverUpdate < 16) {
                 ; Skip this frame for hover effects (cap at ~60 FPS)
@@ -2127,7 +2182,7 @@ class Toast {
             }
 
             ; === CLOSE BUTTON ANIMATION ===
-            ; OPTIMIZATION: Batch close button updates with hover effects
+            ; OPTIMIZATION: Don't call Draw() - close button will render in RenderToWindow()
             targetCS := this.closeHovered ? 1.3 : 1.0
             targetCR := this.closeHovered ? 90.0 : 0.0
             targetCA := this.closeHovered ? 255.0 : 170.0
@@ -2136,19 +2191,12 @@ class Toast {
             diffCR := targetCR - this.closeBtnRotation
             diffCA := targetCA - this.closeBtnAlpha
 
-            ; OPTIMIZATION: Only redraw if visual change is significant
+            ; OPTIMIZATION: Only update values, no bitmap redraw
             if (Abs(diffCS) > 0.02 || Abs(diffCR) > 2.0 || Abs(diffCA) > 5.0) {
                 this.closeBtnScale += diffCS * 0.25
                 this.closeBtnRotation += diffCR * 0.2
                 this.closeBtnAlpha += diffCA * 0.2
-
-                ; OPTIMIZATION: Throttle Draw() calls - max once per 16ms
-                if (A_TickCount - this.lastDrawTime > 16) {
-                    this.cacheDirty := true
-                    this.Draw()
-                    this.lastDrawTime := A_TickCount
-                    dirty := true
-                }
+                dirty := true  ; Will trigger RenderToWindow()
             } else {
                 this.closeBtnScale := targetCS
                 this.closeBtnRotation := targetCR
