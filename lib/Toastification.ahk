@@ -50,119 +50,61 @@ class ToastEasing {
             : ((2 * t - 2) ** 2 * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2
     }
 
-    ; Bounce easing
-    static bounce(t) {
-        n1 := 7.5625
-        d1 := 2.75
+    ; Bounce easing (alias for bounceOut)
+    static bounce(t) => ToastEasing.bounceOut(t)
 
-        if (t < 1 / d1) {
-            return n1 * t * t
-        } else if (t < 2 / d1) {
-            t -= 1.5 / d1
-            return n1 * t * t + 0.75
-        } else if (t < 2.5 / d1) {
-            t -= 2.25 / d1
-            return n1 * t * t + 0.9375
-        } else {
-            t -= 2.625 / d1
-            return n1 * t * t + 0.984375
-        }
-    }
-
-    ; Get easing function by name and apply it to t
+    ; Get easing function by name and apply it to t (Map lookup = O(1))
+    static funcs := 0 ; Initialized lazily
     static get(name, t) {
-        if (name = "linear")
-            return ToastEasing.linear(t)
-        else if (name = "easeInQuad")
-            return ToastEasing.easeInQuad(t)
-        else if (name = "easeOutQuad")
-            return ToastEasing.easeOutQuad(t)
-        else if (name = "easeInOutQuad")
-            return ToastEasing.easeInOutQuad(t)
-        else if (name = "easeInCubic")
-            return ToastEasing.easeInCubic(t)
-        else if (name = "easeOutCubic")
-            return ToastEasing.easeOutCubic(t)
-        else if (name = "easeInOutCubic")
-            return ToastEasing.easeInOutCubic(t)
-        else if (name = "easeInQuart")
-            return ToastEasing.easeInQuart(t)
-        else if (name = "easeOutQuart")
-            return ToastEasing.easeOutQuart(t)
-        else if (name = "easeInOutQuart")
-            return ToastEasing.easeInOutQuart(t)
-        else if (name = "easeInBack")
-            return ToastEasing.easeInBack(t)
-        else if (name = "easeOutBack")
-            return ToastEasing.easeOutBack(t)
-        else if (name = "easeInOutBack")
-            return ToastEasing.easeInOutBack(t)
-        else if (name = "bounce" || name = "bounceOut")
-            return ToastEasing.bounceOut(t)
-        else if (name = "bounceIn")
-            return ToastEasing.bounceIn(t)
-        else if (name = "bounceInOut")
-            return ToastEasing.bounceInOut(t)
-        ; Sine
-        else if (name = "easeInSine")
-            return ToastEasing.easeInSine(t)
-        else if (name = "easeOutSine")
-            return ToastEasing.easeOutSine(t)
-        else if (name = "easeInOutSine")
-            return ToastEasing.easeInOutSine(t)
-        ; Expo
-        else if (name = "easeInExpo")
-            return ToastEasing.easeInExpo(t)
-        else if (name = "easeOutExpo")
-            return ToastEasing.easeOutExpo(t)
-        else if (name = "easeInOutExpo")
-            return ToastEasing.easeInOutExpo(t)
-        ; Circ
-        else if (name = "easeInCirc")
-            return ToastEasing.easeInCirc(t)
-        else if (name = "easeOutCirc")
-            return ToastEasing.easeOutCirc(t)
-        else if (name = "easeInOutCirc")
-            return ToastEasing.easeInOutCirc(t)
-        ; Quint
-        else if (name = "easeInQuint")
-            return ToastEasing.easeInQuint(t)
-        else if (name = "easeOutQuint")
-            return ToastEasing.easeOutQuint(t)
-        else if (name = "easeInOutQuint")
-            return ToastEasing.easeInOutQuint(t)
-        ; Elastic
-        else if (name = "elasticIn")
-            return ToastEasing.elasticIn(t)
-        else if (name = "elasticOut")
-            return ToastEasing.elasticOut(t)
-        else if (name = "elasticInOut")
-            return ToastEasing.elasticInOut(t)
-        ; Flutter curves
-        else if (name = "decelerate")
-            return ToastEasing.decelerate(t)
-        else if (name = "ease")
-            return ToastEasing.ease(t)
-        else if (name = "easeIn")
-            return ToastEasing.easeIn(t)
-        else if (name = "easeOut")
-            return ToastEasing.easeOut(t)
-        else if (name = "easeInOut")
-            return ToastEasing.easeInOut(t)
-        else if (name = "fastOutSlowIn" || name = "fastOutSlowIn")
-            return ToastEasing.fastOutSlowIn(t)
-        else if (name = "slowMiddle")
-            return ToastEasing.slowMiddle(t)
-        else if (name = "easeInToLinear")
-            return ToastEasing.easeInToLinear(t)
-        else if (name = "linearToEaseOut")
-            return ToastEasing.linearToEaseOut(t)
-        else if (name = "fastLinearToSlowEaseIn")
-            return ToastEasing.fastLinearToSlowEaseIn(t)
-        else if (name = "easeInOutCubicEmphasized")
-            return ToastEasing.easeInOutCubicEmphasized(t)
-        else
-            return ToastEasing.easeOutCubic(t) ; Default fallback
+        if (!ToastEasing.funcs) {
+            ToastEasing.funcs := Map(
+                "linear", ToastEasing.linear,
+                "easeInQuad", ToastEasing.easeInQuad,
+                "easeOutQuad", ToastEasing.easeOutQuad,
+                "easeInOutQuad", ToastEasing.easeInOutQuad,
+                "easeInCubic", ToastEasing.easeInCubic,
+                "easeOutCubic", ToastEasing.easeOutCubic,
+                "easeInOutCubic", ToastEasing.easeInOutCubic,
+                "easeInQuart", ToastEasing.easeInQuart,
+                "easeOutQuart", ToastEasing.easeOutQuart,
+                "easeInOutQuart", ToastEasing.easeInOutQuart,
+                "easeInBack", ToastEasing.easeInBack,
+                "easeOutBack", ToastEasing.easeOutBack,
+                "easeInOutBack", ToastEasing.easeInOutBack,
+                "bounce", ToastEasing.bounceOut,
+                "bounceOut", ToastEasing.bounceOut,
+                "bounceIn", ToastEasing.bounceIn,
+                "bounceInOut", ToastEasing.bounceInOut,
+                "easeInSine", ToastEasing.easeInSine,
+                "easeOutSine", ToastEasing.easeOutSine,
+                "easeInOutSine", ToastEasing.easeInOutSine,
+                "easeInExpo", ToastEasing.easeInExpo,
+                "easeOutExpo", ToastEasing.easeOutExpo,
+                "easeInOutExpo", ToastEasing.easeInOutExpo,
+                "easeInCirc", ToastEasing.easeInCirc,
+                "easeOutCirc", ToastEasing.easeOutCirc,
+                "easeInOutCirc", ToastEasing.easeInOutCirc,
+                "easeInQuint", ToastEasing.easeInQuint,
+                "easeOutQuint", ToastEasing.easeOutQuint,
+                "easeInOutQuint", ToastEasing.easeInOutQuint,
+                "elasticIn", ToastEasing.elasticIn,
+                "elasticOut", ToastEasing.elasticOut,
+                "elasticInOut", ToastEasing.elasticInOut,
+                "decelerate", ToastEasing.decelerate,
+                "ease", ToastEasing.ease,
+                "easeIn", ToastEasing.easeIn,
+                "easeOut", ToastEasing.easeOut,
+                "easeInOut", ToastEasing.easeInOut,
+                "fastOutSlowIn", ToastEasing.fastOutSlowIn,
+                "slowMiddle", ToastEasing.slowMiddle,
+                "easeInToLinear", ToastEasing.easeInToLinear,
+                "linearToEaseOut", ToastEasing.linearToEaseOut,
+                "fastLinearToSlowEaseIn", ToastEasing.fastLinearToSlowEaseIn,
+                "easeInOutCubicEmphasized", ToastEasing.easeInOutCubicEmphasized
+            )
+        }
+        fn := ToastEasing.funcs.Has(name) ? ToastEasing.funcs[name] : 0
+        return fn ? fn(t) : ToastEasing.easeOutCubic(t)
     }
 
     ; === Quint Easing ===
@@ -282,6 +224,7 @@ class Toastify {
 
     static __globalTimer := 0
     static __watchdogTimer := 0
+    static __lastTickTime := 0
     static registry := Map() ; HWND -> {startTime, duration, instance}
     static config := ToastConfig()
 
@@ -312,6 +255,12 @@ class Toastify {
 
     static Start(theme := "dark", position := "top-right") {
         if !Toastify.pToken {
+            ; === DPI AWARENESS ===
+            ; Per-monitor DPI aware: ensures correct positioning on HiDPI displays
+            ; Without this, Windows may virtualize coordinates causing misalignment
+            try DllCall("user32\SetProcessDpiAwarenessContext", "ptr", -4, "ptr") ; DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            try DllCall("Shcore\SetProcessDpiAwareness", "int", 2, "ptr", 0)       ; Fallback for older Windows
+
             pt := Gdip_Startup()
             if !pt {
                 MsgBox("GDI+ startup failed")
@@ -322,9 +271,11 @@ class Toastify {
             OnMessage(0x201, (wParam, lParam, msg, hwnd) => Toastify.__Click(wParam, lParam, msg, hwnd))
 
             ; === HIGH PERFORMANCE MODE ===
-            ; Set Windows multimedia timer resolution to 1ms for precise timing
-            ; This dramatically improves SetTimer accuracy from ~15.6ms to 1ms
-            DllCall("Winmm.dll\timeBeginPeriod", "UInt", 1)
+            ; WARNING: timeBeginPeriod affects the ENTIRE SYSTEM (all processes),
+            ; increasing CPU power consumption. Using 2ms instead of 1ms as a
+            ; compromise: still gives ~2ms timer precision (enough for 60fps = 16.67ms)
+            ; while being less aggressive on system power usage.
+            DllCall("Winmm.dll\timeBeginPeriod", "UInt", 2)
 
             ; Increase process priority for better CPU scheduling
             ProcessSetPriority("High")
@@ -333,6 +284,7 @@ class Toastify {
             ; Negative period (-16) = high priority, more precise execution
             ; Target: 60 FPS (1000ms / 60 = ~16.67ms)
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
+            Toastify.__lastTickTime := A_TickCount
             SetTimer(Toastify.__globalTimer, -16) ; Negative = run once with high priority
 
             ; Start Watchdog (Fast failsafe for stuck toasts)
@@ -373,13 +325,14 @@ class Toastify {
         Toastify.toasts := []
         Toastify.exitingToasts := []
 
-        ; Restore default Windows timer resolution
-        DllCall("Winmm.dll\timeEndPeriod", "UInt", 1)
+        ; Restore default Windows timer resolution (must match timeBeginPeriod value)
+        DllCall("Winmm.dll\timeEndPeriod", "UInt", 2)
 
         ; Restore normal process priority
         ProcessSetPriority("Normal")
 
         if Toastify.pToken {
+            ToastTheme.Shutdown()
             Gdip_Shutdown(Toastify.pToken)
             Toastify.pToken := 0
         }
@@ -567,9 +520,12 @@ class Toastify {
     }
 
     static __globalTick(*) {
-        ; === HIGH PERFORMANCE: Self-restart for precise timing ===
-        ; Restart timer immediately for next frame (negative period = high priority)
-        SetTimer(Toastify.__globalTimer, -16)
+        ; === HIGH PERFORMANCE: Compensate execution time for precise timing ===
+        now := A_TickCount
+        elapsed := now - Toastify.__lastTickTime
+        Toastify.__lastTickTime := now
+        ; Restart timer with compensation: target 16ms minus time already spent
+        SetTimer(Toastify.__globalTimer, -Max(1, 16 - elapsed))
 
         ; --- FAIL-SAFE 1: Enforce Max Toasts (Redundant check) ---
         while (Toastify.toasts.Length > Toastify.maxToasts) {
@@ -586,26 +542,51 @@ class Toastify {
             }
         }
 
-        ; Process Active Toasts
-        for t in Toastify.toasts.Clone() {
-            ; --- FAIL-SAFE 2: Leaked "Out" Toasts ---
-            ; If a toast in the active list is marked as "out", it shouldn't be here.
+        ; Process Active Toasts (no .Clone() — defer mutations)
+        toastsToExit := []
+        for t in Toastify.toasts {
             if (t.animState == "out") {
-                t.StartExit() ; This will move it to exitingToasts
+                toastsToExit.Push(t)
                 continue
             }
             t.Tick()
         }
+        for t in toastsToExit {
+            t.StartExit()
+        }
 
-        ; Process Exiting Toasts
-        for t in Toastify.exitingToasts.Clone() {
+        ; Process Exiting Toasts (no .Clone() — use index-safe removal)
+        i := 1
+        while (i <= Toastify.exitingToasts.Length) {
+            t := Toastify.exitingToasts[i]
             t.Tick()
 
-            ; --- FAIL-SAFE 3: Stuck Exit Timeout ---
-            ; Force dismiss if stuck in exit state too long (immediately after expected duration)
             if (t.animState == "out" && (A_TickCount - t.animStartTime > t.animDuration)) {
                 t.Dismiss()
+                ; Dismiss() already removes from exitingToasts and reflows, don't increment
+            } else {
+                i++
             }
+        }
+    }
+
+    static __checkHover(t, x, y) {
+        if (!t.hwnd)
+            return
+
+        wasInside := t.hovered
+        isInside := (x >= t.currentX && x <= t.currentX + t.width && y >= t.currentY && y <= t.currentY + t.height)
+
+        if (isInside && !wasInside) {
+            relX := x - t.currentX
+            relY := y - t.currentY
+            t.OnMouseMove(relX, relY)
+        } else if (!isInside && wasInside) {
+            t.OnMouseLeave()
+        } else if (isInside) {
+            relX := x - t.currentX
+            relY := y - t.currentY
+            t.OnMouseMove(relX, relY)
         }
     }
 
@@ -613,50 +594,14 @@ class Toastify {
         ; Poll mouse position and check against all toasts
         MouseGetPos(&x, &y)
 
-        ; Check Active Toasts
-        for t in Toastify.toasts.Clone() {
-            if (!t.hwnd)
-                continue
-
-            ; Check if mouse is within toast screen bounds
-            wasInside := t.hovered
-            isInside := (x >= t.currentX && x <= t.currentX + t.width && y >= t.currentY && y <= t.currentY + t.height)
-
-            if (isInside && !wasInside) {
-                ; Mouse entered
-                relX := x - t.currentX
-                relY := y - t.currentY
-                t.OnMouseMove(relX, relY)
-            } else if (!isInside && wasInside) {
-                ; Mouse left
-                t.OnMouseLeave()
-            } else if (isInside) {
-                ; Mouse moved inside (update close button hover state)
-                relX := x - t.currentX
-                relY := y - t.currentY
-                t.OnMouseMove(relX, relY)
-            }
+        ; Check Active Toasts (no .Clone() — hover callbacks don't mutate arrays)
+        for t in Toastify.toasts {
+            Toastify.__checkHover(t, x, y)
         }
 
-        ; Check Exiting Toasts too
-        for t in Toastify.exitingToasts.Clone() {
-            if (!t.hwnd)
-                continue
-
-            wasInside := t.hovered
-            isInside := (x >= t.currentX && x <= t.currentX + t.width && y >= t.currentY && y <= t.currentY + t.height)
-
-            if (isInside && !wasInside) {
-                relX := x - t.currentX
-                relY := y - t.currentY
-                t.OnMouseMove(relX, relY)
-            } else if (!isInside && wasInside) {
-                t.OnMouseLeave()
-            } else if (isInside) {
-                relX := x - t.currentX
-                relY := y - t.currentY
-                t.OnMouseMove(relX, relY)
-            }
+        ; Check Exiting Toasts too (no .Clone())
+        for t in Toastify.exitingToasts {
+            Toastify.__checkHover(t, x, y)
         }
     }
 
@@ -947,6 +892,13 @@ class ToastTheme {
     }
 
     static Register(name, palette) {
+        ; Cache GDI+ objects per theme to avoid create/destroy every frame
+        palette.shadowBrush := Gdip_BrushCreateSolid(palette.shadow)
+        palette.borderPen := Gdip_CreatePen(palette.accent, 2)
+        palette.accentBrush := Gdip_BrushCreateSolid(palette.accent)
+        palette.btnBorderPen := Gdip_CreatePen(0x44FFFFFF, 1)
+        palette.btnFillBrush := Gdip_BrushCreateSolid(0x33000000)
+        palette.progressFillBrush := Gdip_BrushCreateSolid(palette.progress)
         ToastTheme.themes[name] := palette
     }
 
@@ -954,6 +906,18 @@ class ToastTheme {
         if (ToastTheme.themes.Has(theme))
             return ToastTheme.themes[theme]
         return ToastTheme.themes["dark"]
+    }
+
+    static Shutdown() {
+        ; Release all cached GDI+ objects
+        for name, pal in ToastTheme.themes {
+            try Gdip_DeleteBrush(pal.shadowBrush)
+            try Gdip_DeletePen(pal.borderPen)
+            try Gdip_DeleteBrush(pal.accentBrush)
+            try Gdip_DeletePen(pal.btnBorderPen)
+            try Gdip_DeleteBrush(pal.btnFillBrush)
+            try Gdip_DeleteBrush(pal.progressFillBrush)
+        }
     }
 }
 
@@ -1027,6 +991,7 @@ class Toast {
     opacity := 1.0
     scale := 1.0
     rotation := 0.0
+    resolvedEntrance := "right" ; Cached entrance direction (resolved from "auto")
 
     ; Buffer State
     bufferWidth := 0
@@ -1052,6 +1017,13 @@ class Toast {
 
     ; Dismissal Behavior
     autoDismiss := true
+
+    ; Idle Lerp Timing
+    lastIdleTick := 0
+
+    ; Progress Complete Timeout (force exit after 5s even if hovered)
+    progressCompleteTime := 0
+    static progressGracePeriod := 5000
 
     ; Configurable Properties
     fontName := "Segoe UI"
@@ -1216,9 +1188,8 @@ class Toast {
     }
 
     Draw() {
-        if (!this.cacheDirty && this.scale == 1.0) {
-            ; If cache is clean and no scaling, just copy cache to window
-            ; But if we have scaling, we need to RenderToWindow anyway
+        if (!this.cacheDirty && this.scale == 1.0 && this.rotation == 0) {
+            ; Cache is clean and no transforms needed — just copy cache to window
             this.RenderToWindow()
             return
         }
@@ -1229,19 +1200,16 @@ class Toast {
         ; Clear Cache
         Gdip_GraphicsClear(this.GCache)
 
-        pBrushShadow := Gdip_BrushCreateSolid(pal.shadow)
-        Gdip_FillRoundedRectangle(this.GCache, pBrushShadow, 4, 4, this.width - 8, this.height - 8, this.borderRadius)
-        Gdip_DeleteBrush(pBrushShadow)
+        ; Use cached GDI+ objects (no create/destroy per frame)
+        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4, 4, this.width - 8, this.height - 8, this.borderRadius)
 
-        ; Draw gradient background
+        ; Draw gradient background (per-toast — depends on dimensions)
         pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
         Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
         Gdip_DeleteBrush(pBrush)
 
-        ; Draw border with accent color
-        pPen := Gdip_CreatePen(pal.accent, 2)
-        Gdip_DrawRoundedRectangle(this.GCache, pPen, 1, 1, this.width - 2, this.height - 2, this.borderRadius)
-        Gdip_DeletePen(pPen)
+        ; Draw border with accent color (cached)
+        Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 1, 1, this.width - 2, this.height - 2, this.borderRadius)
 
         ; Draw icon if provided
         iconX := this.paddingX
@@ -1300,15 +1268,11 @@ class Toast {
                 rectW := btnW
                 rectH := 28
 
-                ; Button background
-                pAccent := Gdip_BrushCreateSolid(pal.accent)
-                Gdip_FillRoundedRectangle(this.GCache, pAccent, rectX, rectY, rectW, rectH, 6)
-                Gdip_DeleteBrush(pAccent)
+                ; Button background (cached)
+                Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6)
 
-                ; Button border for depth
-                pPenBtn := Gdip_CreatePen(0x44FFFFFF, 1)
-                Gdip_DrawRoundedRectangle(this.GCache, pPenBtn, rectX, rectY, rectW, rectH, 6)
-                Gdip_DeletePen(pPenBtn)
+                ; Button border for depth (cached)
+                Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6)
 
                 ; Button text
                 txtOpts := "x" rectX + 10 " y" rectY + 6 " w" rectW - 20 " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
@@ -1442,6 +1406,23 @@ class Toast {
         Gdip_SetSmoothingMode(this.G, 4)
     }
 
+    ShrinkBuffer() {
+        if (this.bufferWidth <= this.width && this.bufferHeight <= this.height)
+            return ; Already at or below original size
+
+        SelectObject(this.hdc, this.obm)
+        DeleteObject(this.hbm)
+        Gdip_DeleteGraphics(this.G)
+
+        this.bufferWidth := this.width
+        this.bufferHeight := this.height
+
+        this.hbm := CreateDIBSection(this.width, this.height)
+        this.obm := SelectObject(this.hdc, this.hbm)
+        this.G := Gdip_GraphicsFromHDC(this.hdc)
+        Gdip_SetSmoothingMode(this.G, 4)
+    }
+
     UpdateWindow(x := "", y := "", alpha := 255) {
         if (x != "")
             this.currentX := x
@@ -1529,15 +1510,12 @@ class Toast {
         barX := 8
         barWidth := this.width - 16
 
-        pBrushBg := Gdip_BrushCreateSolid(0x33000000)
-        Gdip_FillRoundedRectangle(this.GCache, pBrushBg, barX, barY, barWidth, barHeight, 2)
-        Gdip_DeleteBrush(pBrushBg)
+        ; Use cached GDI+ objects
+        Gdip_FillRoundedRectangle(this.GCache, pal.btnFillBrush, barX, barY, barWidth, barHeight, 2)
 
         if (this.progress > 0) {
             fillWidth := barWidth * this.progress
-            pBrushFill := Gdip_BrushCreateSolid(pal.progress)
-            Gdip_FillRoundedRectangle(this.GCache, pBrushFill, barX, barY, fillWidth, barHeight, 2)
-            Gdip_DeleteBrush(pBrushFill)
+            Gdip_FillRoundedRectangle(this.GCache, pal.progressFillBrush, barX, barY, fillWidth, barHeight, 2)
         }
     }
 
@@ -1554,6 +1532,20 @@ class Toast {
         this.opacity := 1.0
         this.scale := 1.0
         this.rotation := 0.0
+
+        ; Cache resolved entrance direction (avoid recalculating every frame)
+        entrance := this.animEntrance
+        if (entrance == "auto") {
+            if (this.position == "top-right" || this.position == "bottom-right")
+                entrance := "right"
+            else if (this.position == "top-left" || this.position == "bottom-left")
+                entrance := "left"
+            else if (this.position == "top-center")
+                entrance := "top"
+            else
+                entrance := "bottom"
+        }
+        this.resolvedEntrance := entrance
 
         if (this.HasAnim("fade")) {
             this.opacity := 0.0
@@ -1575,17 +1567,7 @@ class Toast {
         startY := this.targetY
 
         if (this.HasAnim("slide")) {
-            entrance := this.animEntrance
-            if (entrance == "auto") {
-                if (this.position == "top-right" || this.position == "bottom-right")
-                    entrance := "right"
-                else if (this.position == "top-left" || this.position == "bottom-left")
-                    entrance := "left"
-                else if (this.position == "top-center")
-                    entrance := "top"
-                else
-                    entrance := "bottom"
-            }
+            entrance := this.resolvedEntrance
 
             if (entrance == "right")
                 startX := A_ScreenWidth
@@ -1650,23 +1632,7 @@ class Toast {
                 if (this.animState == "in") {
                     ; Position (Slide)
                     if (this.HasAnim("slide")) {
-                        ; Re-calculate start pos if needed, but we set currentX in AnimateIn
-                        ; We need to interpolate from initial currentX to targetX
-                        ; BUT currentX is updated every frame.
-                        ; We need to know the ORIGIN.
-                        ; Simplified: We know targetX/Y. We need to calculate offset based on (1-ease).
-
-                        entrance := this.animEntrance
-                        if (entrance == "auto") {
-                            if (this.position == "top-right" || this.position == "bottom-right")
-                                entrance := "right"
-                            else if (this.position == "top-left" || this.position == "bottom-left")
-                                entrance := "left"
-                            else if (this.position == "top-center")
-                                entrance := "top"
-                            else
-                                entrance := "bottom"
-                        }
+                        entrance := this.resolvedEntrance
 
                         offX := 0, offY := 0
                         if (entrance == "right")
@@ -1698,7 +1664,6 @@ class Toast {
                     ; Scale (Zoom)
                     if (this.HasAnim("zoom")) {
                         this.scale := ease
-                        this.RenderToWindow() ; Use RenderToWindow instead of Draw
                         dirty := true
                     } else {
                         this.scale := 1.0
@@ -1707,7 +1672,6 @@ class Toast {
                     ; Rotation
                     if (this.HasAnim("rotate")) {
                         this.rotation := -90.0 * (1.0 - ease)
-                        this.RenderToWindow()
                         dirty := true
                     } else {
                         this.rotation := 0.0
@@ -1718,17 +1682,7 @@ class Toast {
                 else {
                     ; Position (Slide)
                     if (this.HasAnim("slide")) {
-                        entrance := this.animEntrance
-                        if (entrance == "auto") {
-                            if (this.position == "top-right" || this.position == "bottom-right")
-                                entrance := "right"
-                            else if (this.position == "top-left" || this.position == "bottom-left")
-                                entrance := "left"
-                            else if (this.position == "top-center")
-                                entrance := "top"
-                            else
-                                entrance := "bottom"
-                        }
+                        entrance := this.resolvedEntrance
 
                         ; Reverse direction for exit
                         offX := 0, offY := 0
@@ -1760,7 +1714,6 @@ class Toast {
                     ; Rotation
                     if (this.HasAnim("rotate")) {
                         this.rotation := 90.0 * ease ; Rotate out
-                        this.RenderToWindow()
                         dirty := true
                     }
                 }
@@ -1768,13 +1721,19 @@ class Toast {
                 ; Animation Complete
                 if (this.animState == "in") {
                     this.animState := "idle"
+                    this.lastIdleTick := A_TickCount
                     this.currentX := this.targetX
                     this.currentY := this.targetY
                     this.opacity := 1.0
                     this.scale := 1.0
                     this.rotation := 0.0
-                    if (this.HasAnim("zoom") || this.HasAnim("rotate"))
+                    if (this.HasAnim("zoom") || this.HasAnim("rotate")) {
                         this.RenderToWindow()
+                        ; Shrink oversized buffer back to original size (saves memory)
+                        if (this.bufferWidth > this.width || this.bufferHeight > this.height) {
+                            this.ShrinkBuffer()
+                        }
+                    }
                     dirty := true
                 } else {
                     this.Dismiss()
@@ -1783,8 +1742,13 @@ class Toast {
             }
         } else if (this.animState == "idle") {
             if (Abs(this.currentX - this.targetX) > 0.5 || Abs(this.currentY - this.targetY) > 0.5) {
-                this.currentX += (this.targetX - this.currentX) * 0.2
-                this.currentY += (this.targetY - this.currentY) * 0.2
+                ; Framerate-independent lerp: consistent speed regardless of FPS
+                idleElapsed := now - this.lastIdleTick
+                this.lastIdleTick := now
+                ; baseFactor 0.2 at 60fps (16.67ms); scale by elapsed time
+                factor := 1 - (0.8 ** (idleElapsed / 16.67))
+                this.currentX += (this.targetX - this.currentX) * factor
+                this.currentY += (this.targetY - this.currentY) * factor
                 dirty := true
             } else {
                 this.currentX := this.targetX
@@ -1821,21 +1785,34 @@ class Toast {
                             this.cacheDirty := true
                             this.Draw()  ; Final draw at 100%
                             dirty := true
+                            this.progressCompleteTime := now
                         }
 
-                        ; CRITICAL: Don't exit if user is hovering (pause indefinitely)
+                        ; Force exit after grace period, even if hovered
+                        if (this.progressCompleteTime > 0 && (now - this.progressCompleteTime) > Toast.progressGracePeriod) {
+                            this.StartExit()
+                            return
+                        }
+
+                        ; Don't exit if user is hovering (within grace period)
                         if (!this.hovered || !Toastify.hoverPauseEnabled) {
                             this.StartExit()  ; Trigger exit animation
                             return  ; Stop processing this tick
                         }
-                        ; If hovered, keep toast alive - it will exit when mouse leaves
+                        ; If hovered, keep toast alive — will force exit after grace period
                     }
                 }
             }
         }
 
         if (dirty) {
-            this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
+            ; When rotation or scale transforms are active, RenderToWindow() must be used
+            ; because UpdateWindow() only positions the window without re-rendering transforms
+            if (this.rotation != 0 || this.scale != 1.0) {
+                this.RenderToWindow()
+            } else {
+                this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
+            }
         }
     }
 
@@ -1851,21 +1828,15 @@ class Toast {
             }
         }
 
-        ; AGGRESSIVELY remove from active list
-        loop {
-            found := false
-            for i, t in Toastify.toasts {
-                if (t = this) {
-                    Toastify.toasts.RemoveAt(i)
-                    found := true
-                    break
-                }
-            }
-            if (!found)
+        ; Remove from active list (single pass — O(n))
+        for i, t in Toastify.toasts {
+            if (t = this) {
+                Toastify.toasts.RemoveAt(i)
                 break
+            }
         }
 
-        ; Ensure it's in exiting list (avoid duplicates)
+        ; Ensure it's in exiting list (single pass — O(n))
         inExiting := false
         for t in Toastify.exitingToasts {
             if (t = this) {
@@ -1873,7 +1844,6 @@ class Toast {
                 break
             }
         }
-
         if (!inExiting) {
             Toastify.exitingToasts.Push(this)
         }
@@ -1975,23 +1945,24 @@ class Toast {
     Dismiss() {
         this.Destroy()
 
-        ; Remove from exiting toasts
+        ; Remove from exiting toasts (single pass)
         for i, t in Toastify.exitingToasts {
             if (t = this) {
                 Toastify.exitingToasts.RemoveAt(i)
-                Toastify.__reflow(true)
                 break
             }
         }
 
-        ; Remove from active toasts (fallback)
+        ; Remove from active toasts (single pass — fallback)
         for i, t in Toastify.toasts {
             if (t = this) {
                 Toastify.toasts.RemoveAt(i)
-                Toastify.__reflow(true)
                 break
             }
         }
+
+        ; Single reflow after all removals
+        Toastify.__reflow(true)
     }
 
     Destroy() {
