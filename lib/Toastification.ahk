@@ -53,192 +53,58 @@ class ToastEasing {
     ; Bounce easing (alias for bounceOut)
     static bounce(t) => ToastEasing.bounceOut(t)
 
-    ; Get easing function by name and apply it to t
-    static get(name, t) {
-        switch name {
-            case "linear": return t
-            case "easeInQuad": return t * t
-            case "easeOutQuad": return t * (2 - t)
-            case "easeInOutQuad": return (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t)
-            case "easeInCubic": return t * t * t
-            case "easeOutCubic": return (--t) * t * t + 1
-            case "easeInOutCubic": return (t < 0.5) ? (4 * t * t * t) : ((t - 1) * (2 * t - 2) * (2 * t - 2) + 1)
-            case "easeInQuart": return t * t * t * t
-            case "easeOutQuart": return 1 - (--t) * t * t * t
-            case "easeInOutQuart": return (t < 0.5) ? (8 * t * t * t * t) : (1 - 8 * (--t) * t * t * t)
-            case "easeInBack": {
-                c1 := 1.70158
-                c3 := c1 + 1
-                return c3 * t * t * t - c1 * t * t
-            }
-            case "easeOutBack": {
-                c1 := 1.70158
-                c3 := c1 + 1
-                return 1 + c3 * ((t - 1) ** 3) + c1 * ((t - 1) ** 2)
-            }
-            case "easeInOutBack": {
-                c1 := 1.70158
-                c2 := c1 * 1.525
-                return (t < 0.5)
-                    ? ((2 * t) ** 2 * ((c2 + 1) * 2 * t - c2)) / 2
-                    : ((2 * t - 2) ** 2 * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2
-            }
-            case "bounce", "bounceOut": {
-                n1 := 7.5625, d1 := 2.75
-                if (t < 1 / d1)
-                    return n1 * t * t
-                else if (t < 2 / d1) {
-                    t -= 1.5 / d1
-                    return n1 * t * t + 0.75
-                } else if (t < 2.5 / d1) {
-                    t -= 2.25 / d1
-                    return n1 * t * t + 0.9375
-                } else {
-                    t -= 2.625 / d1
-                    return n1 * t * t + 0.984375
-                }
-            }
-            case "bounceIn": {
-                u := 1 - t
-                n1 := 7.5625, d1 := 2.75
-                if (u < 1 / d1)
-                    u := n1 * u * u
-                else if (u < 2 / d1) {
-                    u -= 1.5 / d1
-                    u := n1 * u * u + 0.75
-                } else if (u < 2.5 / d1) {
-                    u -= 2.25 / d1
-                    u := n1 * u * u + 0.9375
-                } else {
-                    u -= 2.625 / d1
-                    u := n1 * u * u + 0.984375
-                }
-                return 1 - u
-            }
-            case "bounceInOut": {
-                if (t < 0.5) {
-                    u := 1 - 2 * t
-                    n1 := 7.5625, d1 := 2.75
-                    if (u < 1 / d1)
-                        u := n1 * u * u
-                    else if (u < 2 / d1) {
-                        u -= 1.5 / d1
-                        u := n1 * u * u + 0.75
-                    } else if (u < 2.5 / d1) {
-                        u -= 2.25 / d1
-                        u := n1 * u * u + 0.9375
-                    } else {
-                        u -= 2.625 / d1
-                        u := n1 * u * u + 0.984375
-                    }
-                    return (1 - u) / 2
-                } else {
-                    u := 2 * t - 1
-                    n1 := 7.5625, d1 := 2.75
-                    if (u < 1 / d1)
-                        u := n1 * u * u
-                    else if (u < 2 / d1) {
-                        u -= 1.5 / d1
-                        u := n1 * u * u + 0.75
-                    } else if (u < 2.5 / d1) {
-                        u -= 2.25 / d1
-                        u := n1 * u * u + 0.9375
-                    } else {
-                        u -= 2.625 / d1
-                        u := n1 * u * u + 0.984375
-                    }
-                    return (1 + u) / 2
-                }
-            }
-            case "easeInSine": return 1 - Cos((t * 3.14159265359) / 2)
-            case "easeOutSine": return Sin((t * 3.14159265359) / 2)
-            case "easeInOutSine": return -(Cos(3.14159265359 * t) - 1) / 2
-            case "easeInExpo": return (t = 0) ? 0 : (2 ** (10 * t - 10))
-            case "easeOutExpo": return (t = 1) ? 1 : (1 - 2 ** (-10 * t))
-            case "easeInOutExpo": {
-                if (t = 0)
-                    return 0
-                if (t = 1)
-                    return 1
-                return (t < 0.5) ? (2 ** (20 * t - 10)) / 2 : (2 - 2 ** (-20 * t + 10)) / 2
-            }
-            case "easeInCirc": return 1 - Sqrt(1 - (t ** 2))
-            case "easeOutCirc": return Sqrt(1 - ((t - 1) ** 2))
-            case "easeInOutCirc": return (t < 0.5)
-                ? (1 - Sqrt(1 - (2 * t) ** 2)) / 2
-                : (Sqrt(1 - (-2 * t + 2) ** 2) + 1) / 2
-            case "elasticIn": {
-                c4 := (2 * 3.14159265359) / 3
-                return (t = 0) ? 0 : (t = 1) ? 1 : -(2 ** (10 * t - 10)) * Sin((t * 10 - 10.75) * c4)
-            }
-            case "elasticOut": {
-                c4 := (2 * 3.14159265359) / 3
-                return (t = 0) ? 0 : (t = 1) ? 1 : (2 ** (-10 * t)) * Sin((t * 10 - 0.75) * c4) + 1
-            }
-            case "elasticInOut": {
-                c5 := (2 * 3.14159265359) / 4.5
-                return (t = 0) ? 0
-                    : (t = 1) ? 1
-                        : (t < 0.5) ? -((2 ** (20 * t - 10)) * Sin((20 * t - 11.125) * c5)) / 2
-                            : ((2 ** (-20 * t + 10)) * Sin((20 * t - 11.125) * c5)) / 2 + 1
-            }
-            case "easeInQuint": return t * t * t * t * t
-            case "easeOutQuint": return 1 + (--t) * t * t * t * t
-            case "easeInOutQuint": return (t < 0.5) ? (16 * t * t * t * t * t) : (1 + 16 * (--t) * t * t * t * t)
-            case "decelerate": return 1 - ((1 - t) * (1 - t))
-            case "ease": {
-                if (t < 0.5)
-                    return 4 * t * t * t
-                else {
-                    tt := t - 1
-                    return tt * tt * tt * 4 + 1
-                }
-            }
-            case "easeIn": return t * t * t
-            case "easeOut": {
-                tt := t - 1
-                return tt * tt * tt + 1
-            }
-            case "easeInOut": {
-                if (t < 0.5)
-                    return 4 * t * t * t
-                else {
-                    tt := t - 1
-                    return tt * tt * tt * 4 + 1
-                }
-            }
-            case "fastOutSlowIn": {
-                if (t < 0.5)
-                    return 4 * t * t * t
-                else {
-                    tt := t - 1
-                    return tt * tt * tt * 4 + 1
-                }
-            }
-            case "slowMiddle": {
-                if (t < 0.5)
-                    return 4 * t * t * t / 2
-                return 0.5 + ((t - 1) * (2 * t - 2) * (2 * t - 2) + 1) / 2
-            }
-            case "easeInToLinear": return (t < 0.5) ? t * t * t * 4 / 2 : 0.5 + (t - 0.5)
-            case "linearToEaseOut": return (t < 0.5) ? t : 0.5 + ((t - 0.5 - 1) * (2 * (t - 0.5) - 2) * (2 * (t - 0.5) - 2) + 1) / 2
-            case "fastLinearToSlowEaseIn": {
-                linearEnd := 0.5
-                if (t < linearEnd)
-                    return t / linearEnd * 0.5
-                return 0.5 + (t * t * t) / 2
-            }
-            case "easeInOutCubicEmphasized": {
-                c := 1.4
-                if (t < 0.5)
-                    return (c * 4 * t * t * t)
-                else {
-                    tt := t - 1
-                    return (1 + c * 4 * tt * tt * tt + 1) / 2
-                }
-            }
-            default: return t * t * t ; easeOutCubic fallback
+    ; Get easing function by name and apply it to t (Map lookup = O(1))
+    static funcs := 0 ; Initialized lazily
+    static getEasing(name, t) {
+        if (!ToastEasing.funcs) {
+            ToastEasing.funcs := Map(
+                "linear", ToastEasing.linear,
+                "easeInQuad", ToastEasing.easeInQuad,
+                "easeOutQuad", ToastEasing.easeOutQuad,
+                "easeInOutQuad", ToastEasing.easeInOutQuad,
+                "easeInCubic", ToastEasing.easeInCubic,
+                "easeOutCubic", ToastEasing.easeOutCubic,
+                "easeInOutCubic", ToastEasing.easeInOutCubic,
+                "easeInQuart", ToastEasing.easeInQuart,
+                "easeOutQuart", ToastEasing.easeOutQuart,
+                "easeInOutQuart", ToastEasing.easeInOutQuart,
+                "easeInBack", ToastEasing.easeInBack,
+                "easeOutBack", ToastEasing.easeOutBack,
+                "easeInOutBack", ToastEasing.easeInOutBack,
+                "bounce", ToastEasing.bounceOut,
+                "bounceOut", ToastEasing.bounceOut,
+                "bounceIn", ToastEasing.bounceIn,
+                "bounceInOut", ToastEasing.bounceInOut,
+                "easeInSine", ToastEasing.easeInSine,
+                "easeOutSine", ToastEasing.easeOutSine,
+                "easeInOutSine", ToastEasing.easeInOutSine,
+                "easeInExpo", ToastEasing.easeInExpo,
+                "easeOutExpo", ToastEasing.easeOutExpo,
+                "easeInOutExpo", ToastEasing.easeInOutExpo,
+                "easeInCirc", ToastEasing.easeInCirc,
+                "easeOutCirc", ToastEasing.easeOutCirc,
+                "easeInOutCirc", ToastEasing.easeInOutCirc,
+                "easeInQuint", ToastEasing.easeInQuint,
+                "easeOutQuint", ToastEasing.easeOutQuint,
+                "easeInOutQuint", ToastEasing.easeInOutQuint,
+                "elasticIn", ToastEasing.elasticIn,
+                "elasticOut", ToastEasing.elasticOut,
+                "elasticInOut", ToastEasing.elasticInOut,
+                "decelerate", ToastEasing.decelerate,
+                "ease", ToastEasing.ease,
+                "easeIn", ToastEasing.easeIn,
+                "easeOut", ToastEasing.easeOut,
+                "easeInOut", ToastEasing.easeInOut,
+                "fastOutSlowIn", ToastEasing.fastOutSlowIn,
+                "slowMiddle", ToastEasing.slowMiddle,
+                "easeInToLinear", ToastEasing.easeInToLinear,
+                "linearToEaseOut", ToastEasing.linearToEaseOut,
+                "fastLinearToSlowEaseIn", ToastEasing.fastLinearToSlowEaseIn,
+                "easeInOutCubicEmphasized", ToastEasing.easeInOutCubicEmphasized
+            )
         }
+        fn := ToastEasing.funcs.Has(name) ? ToastEasing.funcs[name] : 0
+        return fn ? fn.Call(ToastEasing, t) : ToastEasing.easeOutCubic(t)
     }
 
     ; === Quint Easing ===
@@ -1760,7 +1626,7 @@ class Toast {
 
             if (elapsed < this.animDuration) {
                 easeT := elapsed / this.animDuration
-                ease := ToastEasing.get(this.animEasing, easeT)
+                ease := ToastEasing.getEasing(this.animEasing, easeT)
 
                 ; IN Animation
                 if (this.animState == "in") {
