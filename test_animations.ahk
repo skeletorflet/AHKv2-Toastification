@@ -1,4 +1,3 @@
-#Requires AutoHotkey v2.0
 #Include lib\Toastification.ahk
 CoordMode 'Mouse', 'Screen'
 ; Initialize Toastification
