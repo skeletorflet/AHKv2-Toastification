@@ -17,15 +17,13 @@ return
 
 clickHandler(*) {
     perm := Random(0, 1)
-    Toastify.Show(
-        'Example',
-        perm == 1 ? 'This is a Permanent Toastify' : 'This is a Normal Toastify', , {
-            animStyle: [Toastify.ANIM_STYLE.ZOOM, Toastify.ANIM_STYLE.SLIDE, Toastify.ANIM_STYLE.FADE],
-            permanent: perm == 1 ? true : false,
-            animEntrance: Toastify.ENTRANCE.LEFT,
-            animEasing: Toastify.EASING.BOUNCE_OUT,
-            animDuration: Random(200, 3000),
-            duration: 4000,
-        }
-    )
+    Toastify.Show("Update Available", "v2.1.0 is ready.", [{ text: "Update", onClick: (*) => Run("updater.exe") }, { text: "Later", onClick: (*) => MsgBox("Snoozed") },
+    ], {
+        animStyle: [Toastify.ANIM_STYLE.ZOOM, Toastify.ANIM_STYLE.SLIDE],
+        animEasing: Toastify.EASING.BOUNCE_OUT,
+        theme: "cyberpunk",
+        duration: 5000,
+    })
 }
+
+esc::Reload
