@@ -1,4 +1,5 @@
-#Include lib\Toastification.ahk
+#Requires AutoHotkey v2.0
+#Include lib\Toastify.ahk
 CoordMode 'Mouse', 'Screen'
 ; Initialize Toastification
 Toastify.Start("dark", "top-right")
@@ -74,7 +75,7 @@ myGui.Add("DropDownList", "x+10 yp-5 w160 vRenderQuality Choose3", ["Low", "Medi
 ; --- Actions ---
 myGui.Add("Button", "x20 y+30 w150 h40", "Show Toast").OnEvent("Click", ShowToast)
 myGui.Add("Button", "x+20 w150 h40", "Dismiss All").OnEvent("Click", (*) => Toastify.DismissAll())
-
+myGui.OnEvent('Close', (*) => ExitApp())
 myGui.Show("w360 h780")
 
 ShowToast(*) {
@@ -221,9 +222,11 @@ ShowToast(*) {
         renderQuality: saved.RenderQuality,
         permanent: saved.Permanent
     }
-
+    ; MsgBox opts.theme
     modeStr := saved.Permanent ? "Permanent (manual)" : (saved.ShowProgress ? "Timed with progress" : "Timed")
-    Toastify.Show(title, body . "`nType: " . toastType . " | Theme: " . themeName . " | Anim: " . styleStr .
+    Toastify.Show(
+        title,
+        body . "`nType: " . toastType . " | Theme: " . themeName . " | Anim: " . styleStr .
         "`nEasing: " . easing . " | AnimDur: " . duration . "ms" . "`nMode: " . modeStr . " | Quality: " . saved.RenderQuality,
         [], opts)
 }

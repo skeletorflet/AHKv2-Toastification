@@ -1,118 +1,146 @@
-# Toastification – A Modern Toast Notification Library for AutoHotkey v2
+# Toastify — AHKv2 Toast Notifications
 
-> **Quickly add beautiful, animated toast notifications to your AHK scripts**
+A lightweight, GDI+-powered toast notification library for AutoHotkey v2.0. Zero dependencies beyond the vendored GDI+ wrapper.
 
----
+## Quick Start
 
-## 📦 What is Toastification?
+```autohotkey
+#Include lib\Toastify.ahk
 
-Toastification is a lightweight, dependency‑free AutoHotkey v2 library that provides a fully‑featured toast notification system built on GDI+. It supports:
+; Initialize with position
+Toastify.Start("dark", Toastify.ALIGN.BOTTOM_RIGHT)
 
-- Multiple themes (light, dark, success, error, warning, info)
-- Customizable position (`top‑right`, `bottom‑right`, `top‑left`, `bottom‑left`)
-- Adjustable duration, size, fonts and animation curves
-- Action buttons, progress bar, close button, and hover‑pause
-- Automatic handling of max toast count and graceful exit animations
+; Show a toast
+Toastify.Success("Saved!", "Your changes are safe.")
+```
 
----
+## Ergonomic API
 
-## 🚀 Quick Start
+Set options on individual toasts via autocomplete-friendly constants:
 
-1. **Include the library** in your script (the library files are located in `lib/`):
-   ```ahk
-   #Include lib/Toastification.ahk
-   ```
-2. **Initialize** the system (once per script):
-   ```ahk
-   Toastify.Start("dark", "top-right")   ; theme, position
-   ```
-3. **Show a toast**:
-   ```ahk
-   Toastify.Success("Upload complete", "Your files have been uploaded.")
-   ```
-   That's it – a dark‑themed success toast will appear in the top‑right corner.
+```autohotkey
+Toastify.Show("Hello", "World", , {
+    animStyle: [Toastify.ANIM_STYLE.ZOOM, Toastify.ANIM_STYLE.SLIDE],
+    animEasing: Toastify.EASING.BOUNCE_OUT,
+    animEntrance: Toastify.ENTRANCE.LEFT,
+    animDuration: 800,
+    duration: 4000,
+})
+```
 
----
+### Constants
 
-## 📚 API Overview
+| Constant | Values |
+|---|---|
+| `Toastify.ALIGN` | `TOP_LEFT`, `TOP_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_RIGHT`, `LEFT`, `RIGHT`, `TOP`, `BOTTOM`, `CENTER` |
+| `Toastify.ANIM_STYLE` | `SLIDE`, `FADE`, `ZOOM`, `ROTATE` |
+| `Toastify.ENTRANCE` | `AUTO`, `LEFT`, `RIGHT`, `TOP`, `BOTTOM` |
+| `Toastify.EASING` | `LINEAR`, `EASE_OUT_CUBIC`, `BOUNCE_IN`, `BOUNCE_OUT`, `ELASTIC_OUT`, `DECELERATE`, and 30+ more |
+| `Toastify.THEMES` | `DARK`, `LIGHT`, `SUCCESS`, `ERROR`, `WARNING`, `INFO`, `NEON`, `VAPOR`, `CYBERPUNK`, `RETRO`, `GLASS`, `MINIMAL`, `PASTEL`, `FLAT`, `MIDNIGHT`, `FOREST` (each with `_LIGHT` variant) |
+| `Toastify.QUALITY` | `LOW`, `MEDIUM`, `HIGH` |
+| `Toastify.PRIORITY` | `IDLE`, `BELOW_NORMAL`, `NORMAL`, `ABOVE_NORMAL`, `HIGH`, `REALTIME` |
 
-### Core Methods
+## Global Setup
+
+```autohotkey
+Toastify.Start(theme := "dark", position := "top-right")
+
+; Global defaults for all toasts
+Toastify.SetConfig({
+    width: 340,
+    animDuration: 300,
+    animEasing: "easeOutCubic",
+    animStyle: "slide",
+    animEntrance: "auto",
+    fontName: "Segoe UI Emoji",
+    fontSizeTitle: 16,
+    fontSizeBody: 13,
+    borderRadius: 18,
+    renderQuality: "High",
+})
+```
+
+## Show Methods
+
 | Method | Description |
-|--------|-------------|
-| `Toastify.Show(title, body, actions?, opts?)` | Create a generic toast. |
-| `Toastify.Success(title, body?, actions?, opts?)` | Shortcut for a success‑styled toast. |
-| `Toastify.Error(title, body?, actions?, opts?)` | Shortcut for an error‑styled toast. |
-| `Toastify.Warning(title, body?, actions?, opts?)` | Shortcut for a warning‑styled toast. |
-| `Toastify.Info(title, body?, actions?, opts?)` | Shortcut for an info‑styled toast. |
-| `Toastify.Custom(opts)` | Full control – pass an options map with any properties. |
-| `Toastify.DismissAll()` | Close every active toast immediately. |
-| `Toastify.ShowView(viewItems, opts?)` | Display a custom view (e.g., a list) inside a toast. |
+|---|---|
+| `Toastify.Show(title, body, actions?, opts?)` | Generic toast |
+| `Toastify.Success(title, body?, actions?, opts?)` | Green success toast |
+| `Toastify.Error(title, body?, actions?, opts?)` | Red error toast |
+| `Toastify.Warning(title, body?, actions?, opts?)` | Orange warning toast |
+| `Toastify.Info(title, body?, actions?, opts?)` | Blue info toast |
+| `Toastify.Custom(opts)` | Full control via single object |
+| `Toastify.ShowView(viewItems, opts?)` | Custom GDI+ rendered views |
+| `Toastify.DismissAll()` | Dismiss all visible toasts |
 
-### Options (`opts` map)
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `theme` | string | current theme | Overrides the toast theme (`"dark"`, `"light"`, `"success"`, …). |
-| `position` | string | current position | Overrides screen position (`"top-right"`, `"bottom-left"`, …). |
-| `duration` | integer | `3000` ms | How long the toast stays before auto‑dismiss. |
-| `width` | integer | `340` px | Width of the toast window. |
-| `icon` | string | `""` | Path to a custom icon (overrides theme icon). |
-| `showClose` | boolean | `true` | Show the close‑button. |
-| `showProgress` | boolean | `true` | Show a progress bar that fills over `duration`. |
-| `animDuration` | integer | `300` ms | Length of entrance/exit animation. |
-| `animEasing` | string | `"easeOutCubic"` | Name of an easing function from `ToastEasing`. |
-| `onClick` | function | `null` | Callback when the toast body is clicked. |
-| `onClose` | function | `null` | Callback when the close‑button is clicked. |
+## Per-Toast Options
 
-### Configuration
-You can change the global defaults via `Toastify.SetConfig(cfg)` where `cfg` is an instance of `ToastConfig`. Example:
-```ahk
-cfg := ToastConfig()
-cfg.fontName := "Inter"
-cfg.fontSizeTitle := 18
-cfg.fontSizeBody := 14
-cfg.animDuration := 400
-Toastify.SetConfig(cfg)
-```
-All properties listed in the `ToastConfig` class are configurable (fonts, sizes, padding, etc.).
-
-### Theming
-Register custom palettes with `Toastify.RegisterTheme(name, palette)`. A palette is a map with the following keys:
-- `bg1`, `bg2` – gradient background colors
-- `fg` – text color
-- `accent` – border / button color
-- `shadow` – window shadow color
-- `progress` – progress‑bar color
-
-```ahk
-myPalette := {bg1: 0xEE2A2A2A, bg2: 0xEE1F1F1F, fg: 0xFFFFFFFF, accent: 0xFF00C0FF, shadow: 0x55000000, progress: 0xFF00C0FF}
-Toastify.RegisterTheme("myTheme", myPalette)
-Toastify.Start("myTheme")
+```autohotkey
+Toastify.Show("Title", "Body", [], {
+    width: 400,                      ; Toast width
+    duration: 3000,                  ; Auto-dismiss time (ms); 0 = permanent
+    theme: "success",                ; Theme name
+    position: "bottom-right",        ; Screen corner
+    icon: "success",                 ; Icon preset ("success", "error", "warning", "info")
+    showClose: true,                 ; Show close button
+    showProgress: true,              ; Show progress bar
+    permanent: false,                ; Never auto-dismiss
+    autoDismiss: true,               ; Allow auto-dismiss when progress completes
+    animStyle: ["slide", "fade"],    ; Animation style(s)
+    animEasing: "easeOutCubic",      ; Easing curve
+    animEntrance: "auto",            ; Entrance direction
+    animDuration: 300,               ; Animation duration (ms)
+    onClick: (*) => MsgBox("Tapped"),
+    onClose: (*) => MsgBox("Closed"),
+    fontName: "Segoe UI",
+    fontSizeTitle: 16,
+    fontSizeBody: 13,
+    borderRadius: 18,
+    borderWidth: 0,
+    paddingX: 16,
+    paddingY: 14,
+    iconSize: 32,
+    renderQuality: "High",
+})
 ```
 
----
+### Animation Mixing
 
-## 🛠️ Advanced Usage
+Combine up to 4 animation styles for compound effects:
 
-- **Action Buttons** – Pass an array of objects `{label: "Retry", onClick: Func("RetryHandler")}` as the `actions` argument.
-- **Custom Views** – Use `Toastify.ShowView(viewItems)` to embed a ListView, Grid, or any custom UI inside a toast.
-- **Hover Pause** – Set `Toastify.hoverPauseEnabled := true` (default) to pause the progress bar while the mouse hovers over the toast.
+```autohotkey
+animStyle: [Toastify.ANIM_STYLE.SLIDE, Toastify.ANIM_STYLE.FADE, Toastify.ANIM_STYLE.ZOOM, Toastify.ANIM_STYLE.ROTATE]
+```
 
----
+## Actions & Callbacks
 
-## 📦 Installation
+```autohotkey
+Toastify.Show("Update Available", "v2.1.0 is ready.", [
+    {text: "Update", onClick: (*) => Run("updater.exe")},
+    {text: "Later", onClick: (*) => MsgBox("Snoozed")},
+])
+```
 
-1. Clone the repository or copy the `lib/` folder into your project.
-2. Ensure you have **AutoHotkey v2** installed.
-3. Include the main file as shown in the Quick Start.
+## Custom Themes
 
----
+```autohotkey
+Toastify.RegisterTheme("ocean", {
+    bg1: 0xEE0F2025,    bg2: 0xEE0A1520,
+    fg: 0xFF93C5FD,     accent: 0xFF0EA5E9,
+    shadow: 0x66000000,  progress: 0xFF0EA5E9,
+})
+```
 
-## 📜 License
+## Hover Behavior
 
-Toastification is released under the MIT License. Feel free to use, modify, and distribute it in both personal and commercial projects.
+Toast timers pause on hover and resume on leave. Close button highlights on hover. Progress bars are live.
 
----
+## Requirements
 
-## 🙋‍♀️ Support & Contributions
+- AutoHotkey v2.0+
+- Windows Vista+
+- DPI awareness enabled (automatic)
 
-If you encounter bugs or have feature ideas, open an issue on the GitHub repo. Pull requests are welcome!
+## License
+
+MIT © 2025 Julian — see [LICENSE](LICENSE).

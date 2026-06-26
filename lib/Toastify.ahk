@@ -218,6 +218,129 @@ class Toastify {
     static __lastTickTime := 0
     static registry := Map()
     static config := ToastConfig()
+    animStartX := 0
+    animStartY := 0
+
+    static ALIGN := {
+        TOP: "top",
+        BOTTOM: "bottom",
+        LEFT: "left",
+        RIGHT: "right",
+        CENTER: "center",
+        TOP_LEFT: "top-left",
+        TOP_RIGHT: "top-right",
+        BOTTOM_LEFT: "bottom-left",
+        BOTTOM_RIGHT: "bottom-right"
+    }
+
+    static THEMES := {
+        DARK: "dark",
+        LIGHT: "light",
+        SUCCESS: "success",
+        SUCCESS_LIGHT: "success-light",
+        ERROR: "error",
+        ERROR_LIGHT: "error-light",
+        WARNING: "warning",
+        WARNING_LIGHT: "warning-light",
+        INFO: "info",
+        INFO_LIGHT: "info-light",
+        MIDNIGHT: "midnight",
+        MIDNIGHT_LIGHT: "midnight-light",
+        FOREST: "forest",
+        FOREST_LIGHT: "forest-light",
+        NEON: "neon",
+        NEON_LIGHT: "neon-light",
+        VAPOR: "vapor",
+        VAPOR_LIGHT: "vapor-light",
+        CYBERPUNK: "cyberpunk",
+        CYBERPUNK_LIGHT: "cyberpunk-light",
+        RETRO: "retro",
+        RETRO_LIGHT: "retro-light",
+        GLASS: "glass",
+        GLASS_LIGHT: "glass-light",
+        MINIMAL: "minimal",
+        MINIMAL_LIGHT: "minimal-light",
+        PASTEL: "pastel",
+        PASTEL_LIGHT: "pastel-light",
+        FLAT: "flat",
+        FLAT_LIGHT: "flat-light"
+    }
+
+    static ANIM_STYLE := {
+        SLIDE: "slide",
+        FADE: "fade",
+        ZOOM: "zoom",
+        ROTATE: "rotate"
+    }
+
+    static ENTRANCE := {
+        AUTO: "auto",
+        RIGHT: "right",
+        LEFT: "left",
+        TOP: "top",
+        BOTTOM: "bottom"
+    }
+
+    static QUALITY := {
+        LOW: "Low",
+        MEDIUM: "Medium",
+        HIGH: "High"
+    }
+
+    static EASING := {
+        LINEAR: "linear",
+        EASE_IN_QUAD: "easeInQuad",
+        EASE_OUT_QUAD: "easeOutQuad",
+        EASE_IN_OUT_QUAD: "easeInOutQuad",
+        EASE_IN_CUBIC: "easeInCubic",
+        EASE_OUT_CUBIC: "easeOutCubic",
+        EASE_IN_OUT_CUBIC: "easeInOutCubic",
+        EASE_IN_QUART: "easeInQuart",
+        EASE_OUT_QUART: "easeOutQuart",
+        EASE_IN_OUT_QUART: "easeInOutQuart",
+        EASE_IN_BACK: "easeInBack",
+        EASE_OUT_BACK: "easeOutBack",
+        EASE_IN_OUT_BACK: "easeInOutBack",
+        BOUNCE: "bounce",
+        BOUNCE_OUT: "bounceOut",
+        BOUNCE_IN: "bounceIn",
+        BOUNCE_IN_OUT: "bounceInOut",
+        EASE_IN_SINE: "easeInSine",
+        EASE_OUT_SINE: "easeOutSine",
+        EASE_IN_OUT_SINE: "easeInOutSine",
+        EASE_IN_EXPO: "easeInExpo",
+        EASE_OUT_EXPO: "easeOutExpo",
+        EASE_IN_OUT_EXPO: "easeInOutExpo",
+        EASE_IN_CIRC: "easeInCirc",
+        EASE_OUT_CIRC: "easeOutCirc",
+        EASE_IN_OUT_CIRC: "easeInOutCirc",
+        EASE_IN_QUINT: "easeInQuint",
+        EASE_OUT_QUINT: "easeOutQuint",
+        EASE_IN_OUT_QUINT: "easeInOutQuint",
+        ELASTIC_IN: "elasticIn",
+        ELASTIC_OUT: "elasticOut",
+        ELASTIC_IN_OUT: "elasticInOut",
+        DECELERATE: "decelerate",
+        EASE: "ease",
+        EASE_IN: "easeIn",
+        EASE_OUT: "easeOut",
+        EASE_IN_OUT: "easeInOut",
+        FAST_OUT_SLOW_IN: "fastOutSlowIn",
+        SLOW_MIDDLE: "slowMiddle",
+        EASE_IN_TO_LINEAR: "easeInToLinear",
+        LINEAR_TO_EASE_OUT: "linearToEaseOut",
+        FAST_LINEAR_TO_SLOW_EASE_IN: "fastLinearToSlowEaseIn",
+        EASE_IN_OUT_CUBIC_EMPHASIZED: "easeInOutCubicEmphasized"
+    }
+
+    static PRIORITY := {
+        IDLE: "Idle",
+        BELOW_NORMAL: "BelowNormal",
+        NORMAL: "Normal",
+        ABOVE_NORMAL: "AboveNormal",
+        HIGH: "High",
+        REALTIME: "Realtime"
+    }
 
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
@@ -236,7 +359,6 @@ class Toastify {
     static Start(theme := "dark", position := "top-right") {
         if !Toastify.pToken {
 
-
             try DllCall("user32\SetProcessDpiAwarenessContext", "ptr", -4, "ptr")
             try DllCall("Shcore\SetProcessDpiAwareness", "int", 2, "ptr", 0)
 
@@ -246,24 +368,27 @@ class Toastify {
                 return
             }
             Toastify.pToken := pt
+
+            ; ══════════════════════════════════════════════════════════
+            ; FIX REAL: ahora InitThemes() es un método normal, que SOLO
+            ; corre cuando lo llamamos, y lo llamamos después de tener
+            ; GDI+ inicializado. Antes era imposible controlar esto
+            ; porque __New() se disparaba solo, antes que cualquier cosa.
+            ; ══════════════════════════════════════════════════════════
+            ToastTheme.InitThemes()
+
             OnExit((*) => Toastify.Shutdown())
             OnMessage(0x201, (wParam, lParam, msg, hwnd) => Toastify.__Click(wParam, lParam, msg, hwnd))
 
-
             DllCall("Winmm.dll\timeBeginPeriod", "UInt", 2)
-
-
-            ProcessSetPriority("High")
-
+            ProcessSetPriority(Toastify.PRIORITY.HIGH)
 
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
             Toastify.__lastTickTime := A_TickCount
             SetTimer(Toastify.__globalTimer, -16)
 
-
             Toastify.__watchdogTimer := ObjBindMethod(Toastify, "__watchdogTick")
             SetTimer(Toastify.__watchdogTimer, 100)
-
 
             Toastify.__mouseTimer := ObjBindMethod(Toastify, "__mouseTimerTick")
             SetTimer(Toastify.__mouseTimer, 50)
@@ -302,7 +427,7 @@ class Toastify {
         DllCall("Winmm.dll\timeEndPeriod", "UInt", 2)
 
 
-        ProcessSetPriority("Normal")
+        ProcessSetPriority(Toastify.PRIORITY.NORMAL)
 
         if Toastify.pToken {
             ToastTheme.Shutdown()
@@ -315,49 +440,45 @@ class Toastify {
     static __watchdogTick(*) {
         Critical()
         now := A_TickCount
-        for hwnd, data in Toastify.registry.Clone() {
+        toRemove := []
 
+        for hwnd, data in Toastify.registry.Clone() {
             if (!DllCall("IsWindow", "ptr", hwnd)) {
-                Toastify.registry.Delete(hwnd)
+                toRemove.Push(hwnd)
                 continue
             }
 
-
             t := (data.HasOwnProp("instance") && data.instance) ? data.instance : 0
-
 
             if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled) {
                 continue
             }
 
-
             if (data.duration > 0 && t) {
-
                 expectedLifetime := t.animDuration + data.duration + 500
                 actualLifetime := now - data.startTime
 
                 if (actualLifetime > expectedLifetime) {
-                    if (t.HasProp("animState") && t.animState == "out") {
-
-
+                    if (t.animState == "out") {
                         if (actualLifetime > expectedLifetime + t.animDuration + 500) {
-                            try DllCall("DestroyWindow", "ptr", hwnd)
-                            if (Toastify.registry.Has(hwnd))
-                                Toastify.registry.Delete(hwnd)
+                            t.Dismiss(true)   ; ← antes: t.Dismiss()  — ahora explícito instant=true
+                            toRemove.Push(hwnd)
                         }
                     } else {
-
                         t.StartExit()
                     }
                 }
             } else if (data.duration > 0 && !t) {
-
                 if (now - data.startTime > data.duration + 1000) {
-                    try DllCall("DestroyWindow", "ptr", hwnd)
-                    if (Toastify.registry.Has(hwnd))
-                        Toastify.registry.Delete(hwnd)
+                    toRemove.Push(hwnd)
                 }
             }
+        }
+
+        ; Limpiar registry fuera del loop principal
+        for hwnd in toRemove {
+            if (Toastify.registry.Has(hwnd))
+                Toastify.registry.Delete(hwnd)
         }
     }
 
@@ -408,13 +529,12 @@ class Toastify {
     }
 
     static ShowView(viewItems, opts := 0) {
-        t := Toastify.__createToast("", "", [], opts)
+        t := Toast("", "", [], opts)
         t.view := viewItems
-        t.Draw()
-        t.animState := "in"
-        t.animStartTime := A_TickCount
         Toastify.toasts.Push(t)
-        Toastify.__reflow(false)
+        Toastify.__reflow(true)
+        t.InitAnimation()
+        t.Draw()
         t.AnimateIn()
         return t
     }
@@ -428,16 +548,12 @@ class Toastify {
         if !opts
             opts := {}
 
-
         if !opts.HasProp("theme")
             opts.theme := Toastify.theme
         if !opts.HasProp("position")
             opts.position := Toastify.position
 
-
         if (Toastify.toasts.Length >= Toastify.maxToasts) {
-
-
             if (Toastify.toasts.Length > 0) {
                 oldestToast := Toastify.toasts[1]
                 oldestToast.StartExit()
@@ -448,68 +564,111 @@ class Toastify {
         Toastify.toasts.Push(t)
         Toastify.__reflow(true)
 
-
+        ; ═══════════════════════════════════════════════════════════════
+        ; CAMBIO CLAVE: AnimateIn() antes de Draw()
+        ; ═══════════════════════════════════════════════════════════════
         t.InitAnimation()
-        t.Draw()
-        t.AnimateIn()
+        t.AnimateIn()  ; Establece _initialized = true y posición inicial
+        t.Draw()       ; Ahora sí puede renderizar correctamente
 
         return t
     }
 
     static __reflow(animate := true) {
-        total := Toastify.toasts.Length
-        if (total = 0)
+        if (Toastify.toasts.Length = 0)
             return
 
-        isTop := (Toastify.position = "top-right" || Toastify.position = "top-left")
+        ; Agrupar toasts por position
+        groups := Map()
+        for t in Toastify.toasts {
+            pos := t.position
+            if !groups.Has(pos)
+                groups[pos] := []
+            groups[pos].Push(t)
+        }
+
+        screenCX := A_ScreenWidth // 2
+        screenCY := A_ScreenHeight // 2
         now := A_TickCount
 
-        for idx, t in Toastify.toasts {
-            x := 0, y := 0
-            if (Toastify.position = "top-right") {
-                x := A_ScreenWidth - Toastify.marginX - t.width
-                y := Toastify.marginY + (idx - 1) * (t.height + Toastify.spacing)
-            } else if (Toastify.position = "bottom-right") {
-                x := A_ScreenWidth - Toastify.marginX - t.width
-                y := A_ScreenHeight - Toastify.marginY - (t.height) - (total - idx) * (t.height + Toastify.spacing)
-            } else if (Toastify.position = "top-left") {
-                x := Toastify.marginX
-                y := Toastify.marginY + (idx - 1) * (t.height + Toastify.spacing)
-            } else {
-                x := Toastify.marginX
-                y := A_ScreenHeight - Toastify.marginY - (t.height) - (total - idx) * (t.height + Toastify.spacing)
+        for pos, group in groups {
+            isBottom := InStr(pos, "bottom") || pos = "bottom"
+            isMidV := (pos = "left" || pos = "right" || pos = "center")
+            total := group.Length
+
+            _getX(t) {
+                if (InStr(pos, "right") || pos = "right")
+                    return A_ScreenWidth - Toastify.marginX - t.width
+                if (InStr(pos, "left") || pos = "left")
+                    return Toastify.marginX
+                return screenCX - t.width // 2
             }
 
-
-            for et in Toastify.exitingToasts {
-                exitFraction := 1.0 - Min(1.0, (now - et.animStartTime) / Max(1, et.animDuration))
-                if (exitFraction > 0) {
-                    if (isTop && t.currentY > et.targetY + 1) {
-
-                        y += (et.height + Toastify.spacing) * exitFraction
-                    } else if (!isTop && t.currentY < et.targetY - 1) {
-
-                        y -= (et.height + Toastify.spacing) * exitFraction
-                    }
+            targets := []
+            if (!isBottom && !isMidV) {
+                cursor := Toastify.marginY
+                for t in group {
+                    targets.Push({ x: _getX(t), y: cursor })
+                    cursor += t.height + Toastify.spacing
+                }
+            } else if (isBottom) {
+                cursor := A_ScreenHeight - Toastify.marginY
+                loop total {
+                    idx := total + 1 - A_Index
+                    t := group[idx]
+                    cursor -= t.height
+                    targets.Push({ x: _getX(t), y: cursor })
+                    cursor -= Toastify.spacing
+                }
+                reversed := []
+                loop targets.Length
+                    reversed.Push(targets[targets.Length + 1 - A_Index])
+                targets := reversed
+            } else {
+                totalH := 0
+                for t in group
+                    totalH += t.height + Toastify.spacing
+                totalH -= Toastify.spacing
+                cursor := screenCY - totalH // 2
+                for t in group {
+                    targets.Push({ x: _getX(t), y: cursor })
+                    cursor += t.height + Toastify.spacing
                 }
             }
 
-            t.targetX := x
-            t.targetY := y
+            for idx, t in group {
+                x := targets[idx].x
+                y := targets[idx].y
+                t.targetX := x
+                t.targetY := y
 
-            if (animate) {
-
-                t.repoStartX := t.currentX
-                t.repoStartY := t.currentY
-                t.repoTargetX := x
-                t.repoTargetY := y
-                t.repoStartTime := now
-                t.repoActive := true
-            } else {
-                t.currentX := x
-                t.currentY := y
-                if (t.hwnd)
-                    t.UpdateWindow(x, y)
+                if (!t._initialized) {
+                    t.currentX := x
+                    t.currentY := y
+                } else if (t.animState == "in") {
+                    entrance := t.resolvedEntrance
+                    if (entrance = "right" || entrance = "left")
+                        t.animStartY := y
+                    else
+                        t.animStartX := x
+                } else if (t.animState == "visible") {
+                    if (animate) {
+                        if (Abs(t.repoTargetX - x) > 0.5 || Abs(t.repoTargetY - y) > 0.5) {
+                            t.repoStartX := t.currentX
+                            t.repoStartY := t.currentY
+                            t.repoTargetX := x
+                            t.repoTargetY := y
+                            t.repoStartTime := now
+                            t.repoActive := true
+                        }
+                    } else {
+                        t.repoActive := false
+                        t.currentX := x
+                        t.currentY := y
+                        if (t.hwnd && DllCall("IsWindow", "ptr", t.hwnd))
+                            t.UpdateWindow(x, y)
+                    }
+                }
             }
         }
     }
@@ -527,12 +686,17 @@ class Toastify {
         while (Toastify.toasts.Length > Toastify.maxToasts) {
             if (Toastify.toasts.Length > 0) {
                 t := Toastify.toasts[1]
-                ; StartExit() already removes t from toasts and adds to exitingToasts.
-                ; Only force-remove here if it somehow wasn't moved (safety net).
                 t.StartExit()
                 if (Toastify.toasts.Length > 0 && Toastify.toasts[1] == t) {
                     Toastify.toasts.RemoveAt(1)
-                    if (!Toastify.exitingToasts.Contains(t))
+                    local found := false
+                    for exiting in Toastify.exitingToasts {
+                        if (exiting == t) {
+                            found := true
+                            break
+                        }
+                    }
+                    if (!found)
                         Toastify.exitingToasts.Push(t)
                 }
             } else {
@@ -540,6 +704,10 @@ class Toastify {
             }
         }
 
+        ; ── Si hay toasts saliendo, recalcular targets en cada tick ──
+        ; Esto mantiene el gap-fill sincronizado con la animación de salida
+        ; if (Toastify.exitingToasts.Length > 0 && Toastify.toasts.Length > 0)
+        ;     Toastify.__reflow(true)
 
         toastsToExit := []
         for t in Toastify.toasts {
@@ -560,8 +728,8 @@ class Toastify {
             t.Tick()
 
             if (t.animState == "out" && (A_TickCount - t.animStartTime > t.animDuration)) {
-                t.Dismiss()
-
+                t.Dismiss(true)   ; ← antes: t.Dismiss()  — ahora explícito instant=true
+                Toastify.__reflow(true)
             } else {
                 i++
             }
@@ -687,8 +855,12 @@ class ToastMouseHook {
 class ToastTheme {
     static themes := Map()
 
-    static __New() {
-        ; ── SEMÁNTICOS ──────────────────────────────────────────────
+    ; Ya NO se llama __New() — así no se ejecuta automáticamente
+    ; antes de que exista contexto GDI+.
+    static InitThemes() {
+        if (ToastTheme.themes.Count > 0)
+            return  ; ya inicializado, evita duplicar/leakear handles
+
         ToastTheme.Register("error", {
             bg1: 0xEE2D1517, bg2: 0xEE1A0D10,
             fg: 0xFFFCA5A5, accent: 0xFFEF4444,
@@ -847,15 +1019,31 @@ class ToastTheme {
 
     static Register(name, palette) {
         if !palette.HasOwnProp("border") {
+            ; ══════════════════════════════════════════════════════════
+            ; FIX: el borde ahora usa el accent del tema (contextualizado),
+            ; en vez de solo blanco/negro según luminosidad del fondo.
+            ; Se le aplica una opacidad fuerte para que se note bien
+            ; (ej: error -> rojo intenso, success -> verde intenso).
+            ; ══════════════════════════════════════════════════════════
+            accentRGB := palette.accent & 0xFFFFFF
+            palette.border := 0xCC000000 | accentRGB   ; 0xCC = ~80% opacidad
+        }
+        if !palette.HasOwnProp("progressBg") {
             c := palette.bg1 & 0xFFFFFF
             lum := ((c >> 16) & 0xFF) * 0.299 + ((c >> 8) & 0xFF) * 0.587 + (c & 0xFF) * 0.114
-            palette.border := lum < 128 ? 0x44FFFFFF : 0x22000000
+            palette.progressBg := lum < 128 ? 0x55FFFFFF : 0x33000000
         }
-        if !palette.HasOwnProp("progressBg")
-            palette.progressBg := palette.border
+
+        ; ══════════════════════════════════════════════════════════════
+        ; FIX: ancho de borde configurable por tema (default 1.5, pero
+        ; cada palette puede sobreescribir con borderWidth si quiere).
+        ; ══════════════════════════════════════════════════════════════
+        if !palette.HasOwnProp("borderWidth")
+            palette.borderWidth := 1.5
 
         palette.shadowBrush := Gdip_BrushCreateSolid(palette.shadow)
-        palette.borderPen := Gdip_CreatePen(palette.border, 3)
+        palette.borderPen := Gdip_CreatePen(palette.border, palette.borderWidth)
+        ; MsgBox("borderPen: " palette.borderPen "`n")
         palette.accentBrush := Gdip_BrushCreateSolid(palette.accent)
         palette.btnBorderPen := Gdip_CreatePen(0x44FFFFFF, 1)
         palette.btnFillBrush := Gdip_BrushCreateSolid(0x33000000)
@@ -865,6 +1053,7 @@ class ToastTheme {
         palette.iconWhitePen := Gdip_CreatePen(0xFFFFFFFF, 3)
         palette.iconWhitePen2 := Gdip_CreatePen(0xFFFFFFFF, 2)
         ToastTheme.themes[name] := palette
+
     }
 
     static palette(theme) {
@@ -903,6 +1092,7 @@ class ToastConfig {
     paddingY := 14
     iconSize := 32
     borderRadius := 18
+    borderWidth := 0
 
 
     animDuration := 300
@@ -917,8 +1107,6 @@ class ToastConfig {
 
 }
 
-
-ToastTheme.__New()
 
 class Toast {
     title := ""
@@ -938,13 +1126,18 @@ class Toast {
     hdc := 0
     obm := 0
     G := 0
+    ; ── Posición de salida fija (no cambia por reflow) ──
+    exitTargetX := 0
+    exitTargetY := 0
+    exitStartX := 0
+    exitStartY := 0
 
     ; Static key lists at class level (can't use static inside if-blocks in AHKv2)
     static _cfgKeys := ["width", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "animDuration", "animEasing",
+        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "animEasing",
         "animStyle", "animEntrance", "renderQuality", "repoDuration"]
     static _styleKeys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "animDuration", "renderQuality"]
+        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "renderQuality"]
 
 
     pBitmapCache := 0
@@ -1025,10 +1218,12 @@ class Toast {
     paddingY := 14
     iconSize := 32
     borderRadius := 18
+    borderWidth := 0
     renderQuality := "High"
 
 
     _windowShown := false
+    _initialized := false
 
     __New(title, body, actions, opts) {
         this.title := title
@@ -1134,6 +1329,7 @@ class Toast {
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         Gdip_SetSmoothingMode(this.G, 4)
 
+        ; Usar tamaño exacto. El clip en RenderToWindow evita que se vea negro.
         this.bufferWidth := this.width
         this.bufferHeight := this.height
 
@@ -1182,29 +1378,44 @@ class Toast {
     }
 
     Draw() {
-        if (!this.cacheDirty && this.scale == 1.0 && this.rotation == 0) {
-
-            this.RenderToWindow()
+        if (!this._initialized)
             return
+
+        ; Solo redibujar el cache estático si algo cambió (texto, progreso, hover)
+        if (this.cacheDirty) {
+            this.__drawCache()
+            this.cacheDirty := false
         }
 
+        ; Siempre actualizar la ventana (posición, escala, rotación, opacidad)
+        this.RenderToWindow()
+    }
+
+    __drawCache() {
         pal := ToastTheme.palette(this.theme)
         this.clickRegions := []
 
-
         Gdip_GraphicsClear(this.GCache)
 
-
         Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4, 4, this.width, this.height, this.borderRadius)
-
 
         pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
         Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
         Gdip_DeleteBrush(pBrush)
 
-
-        Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 1, 1, this.width - 2, this.height - 2, this.borderRadius)
-
+        ; ══════════════════════════════════════════════════════════════════
+        ; FIX: si el toast define un borderWidth propio (>0), se crea un pen
+        ; temporal con ese ancho. Si no, se usa el pen cacheado del tema
+        ; (más eficiente, sin alloc por frame).
+        ; ══════════════════════════════════════════════════════════════════
+        if (this.borderWidth > 0) {
+            customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
+            Gdip_DrawRoundedRectangle(this.GCache, customBorderPen, 2, 2, this.width - 4, this.height - 4, this.borderRadius - 1)
+            Gdip_DeletePen(customBorderPen)
+        } else {
+            Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2, 2, this.width - 4, this.height - 4, this.borderRadius - 1)
+        }
+        ; Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2, 2, this.width - 4, this.height - 4, this.borderRadius - 1)
 
         iconX := this.paddingX
         iconY := this.paddingY
@@ -1216,117 +1427,73 @@ class Toast {
             textStartX := iconX + iconSize + 12
         }
 
-
         if (this.showClose) {
             this.DrawCloseButton(pal)
         }
-
 
         font := this.fontName
         titleWidth := this.width - textStartX - (this.showClose ? 40 : this.paddingX)
 
         if (this.title != "") {
-            titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this
-                .fontWeightTitle
+            titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this.fontWeightTitle
             Gdip_TextToGraphics(this.GCache, this.title, titleOpts, font, this.width, this.height)
         }
 
         if (this.body != "") {
             bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4) : this.paddingY
-
-
             availableHeight := this.height - bodyY - this.paddingY
-
-
             if (this.actions.Length > 0)
                 availableHeight -= 38
             if (this.showProgress && this.duration > 0)
                 availableHeight -= 12
 
-
             bodyHeight := Max(20, availableHeight)
-
-            bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this
-                .fontSizeBody " " this.fontWeightBody
+            bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeBody " " this.fontWeightBody
             Gdip_TextToGraphics(this.GCache, this.body, bodyOpts, font, this.width, this.height)
         }
-
 
         if (this.actions.Length) {
             btnW := (this.width - 32 - (this.actions.Length - 1) * 8) // this.actions.Length
             y := this.height - (this.showProgress ? 50 : 40)
             x := 16
             for idx, act in this.actions {
-                rectX := x
-                rectY := y
-                rectW := btnW
-                rectH := 28
-
-
+                rectX := x, rectY := y, rectW := btnW, rectH := 28
                 Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6)
-
-
                 Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6)
-
-
-                txtOpts := "x" rectX + 10 " y" rectY + 6 " w" rectW - 20 " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
-                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width,
-                    this.height
-                )
-
-                this.clickRegions.Push({
-                    x: rectX, y: rectY, w: rectW, h: rectH,
-                    cb: (act.HasProp("onClick") ? act.onClick : act[2]),
-                    type: "button"
-                })
+                txtOpts := "x" (rectX + 10) " y" (rectY + 6) " w" (rectW - 20) " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
+                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
+                this.clickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
                 x += btnW + 8
             }
         }
 
-
         if (this.showProgress && this.duration > 0) {
             this.DrawProgressBar(pal)
         }
-
-        this.cacheDirty := false
-        this.RenderToWindow()
     }
 
     RenderToWindow() {
+        ; Limpiar buffer con transparente absoluto
         Gdip_GraphicsClear(this.G, 0x00000000)
 
-        this.__applyRenderQuality(this.G, false)
+        ; Calcular offset para centrar el dibujo en el buffer
+        drawX := (this.bufferWidth - this.width) / 2
+        drawY := (this.bufferHeight - this.height) / 2
 
         if (this.scale != 1.0 || this.rotation != 0) {
-
-
+            ; Si la escala es casi invisible, ocultar para ahorrar CPU
             if (this.scale < 0.01) {
-                UpdateLayeredWindow(this.hwnd, this.hdc, this.currentX, this.currentY, this.bufferWidth, this.bufferHeight,
-                    0)
+                this.UpdateWindow(this.currentX, this.currentY, 0)
                 return
             }
 
-
-            scaledW := this.width * this.scale
-            scaledH := this.height * this.scale
-            x := (this.width - scaledW) / 2
-            y := (this.height - scaledH) / 2
-
-
-            matrix := Gdip_CreateMatrix()
-            cx := this.width / 2
-            cy := this.height / 2
-
-
-            drawX := (this.bufferWidth - this.width) / 2
-            drawY := (this.bufferHeight - this.height) / 2
-
+            this.__applyRenderQuality(this.G, false)
 
             Gdip_ResetWorldTransform(this.G)
-
             bufCX := this.bufferWidth / 2
             bufCY := this.bufferHeight / 2
 
+            ; Aplicar transformaciones (Rotar/Escalar)
             Gdip_TranslateWorldTransform(this.G, bufCX, bufCY, 0)
             if (this.rotation != 0)
                 Gdip_RotateWorldTransform(this.G, this.rotation, 0)
@@ -1334,52 +1501,31 @@ class Toast {
                 Gdip_ScaleWorldTransform(this.G, this.scale, this.scale, 0)
             Gdip_TranslateWorldTransform(this.G, -bufCX, -bufCY, 0)
 
+            ; ═══════════════════════════════════════════════════════════
+            ; EL FATAL ERROR ESTABA AQUÍ: Antes tenía un 4 (XOR).
+            ; Con 0 (REPLACE) recorta los bordes excesivos del Zoom/Rotate,
+            ; pero SIN borrar el dibujo principal.
+            ; ═══════════════════════════════════════════════════════════
+            Gdip_SetClipRect(this.G, drawX, drawY, this.width, this.height, 0)
 
-            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height
-            )
+            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
 
+            ; Limpiar Clip y Transformaciones
+            Gdip_ResetClip(this.G)
             Gdip_ResetWorldTransform(this.G)
-            Gdip_DeleteMatrix(matrix)
-
-
-            winX := this.currentX - (this.bufferWidth - this.width) / 2
-            winY := this.currentY - (this.bufferHeight - this.height) / 2
-
-            UpdateLayeredWindow(this.hwnd, this.hdc, winX, winY, this.bufferWidth, this.bufferHeight, Floor(this.opacity *
-                255))
-
         } else {
-
-            drawX := (this.bufferWidth - this.width) / 2
-            drawY := (this.bufferHeight - this.height) / 2
-
-            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height
-            )
-
-            winX := this.currentX - drawX
-            winY := this.currentY - drawY
-            UpdateLayeredWindow(this.hwnd, this.hdc, winX, winY, this.bufferWidth, this.bufferHeight, Floor(this.opacity *
-                255))
+            this.__applyRenderQuality(this.G, false)
+            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
         }
+
+        ; ACTUALIZAR VENTANA
+        this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
     }
 
     ResizeBuffer(w, h) {
-        if (w <= this.bufferWidth && h <= this.bufferHeight)
-            return
-
-        SelectObject(this.hdc, this.obm)
-        DeleteObject(this.hbm)
-        Gdip_DeleteGraphics(this.G)
-
-        this.bufferWidth := w
-        this.bufferHeight := h
-
-        this.hbm := CreateDIBSection(w, h)
-        this.obm := SelectObject(this.hdc, this.hbm)
-        this.G := Gdip_GraphicsFromHDC(this.hdc)
-        Gdip_SetSmoothingMode(this.G, 4)
+        ; Obsoleto: El uso de Clipping en RenderToWindow hace innecesario redimensionar.
+        return
     }
-
     ShrinkBuffer() {
 
         if (this.animState == "in" || this.animState == "out")
@@ -1401,27 +1547,34 @@ class Toast {
         Gdip_SetSmoothingMode(this.G, 4)
     }
 
-    UpdateWindow(x := "", y := "", alpha := 255) {
-        if (x != "")
-            this.currentX := x
-        if (y != "")
-            this.currentY := y
+    UpdateWindow(x, y, alpha := 255) {
+        ; ═══════════════════════════════════════════════════════════════
+        ; VALIDACIÓN: Verificar que la ventana y el gui son válidos
+        ; ═══════════════════════════════════════════════════════════════
+        if (!this.hwnd)
+            return
 
+        if (!DllCall("IsWindow", "ptr", this.hwnd))
+            return
 
-        w := (this.bufferWidth > this.width) ? this.bufferWidth : this.width
-        h := (this.bufferHeight > this.height) ? this.bufferHeight : this.height
+        ; Verificar que gui sea un objeto válido
+        if (!IsObject(this.gui))
+            return
 
-
-        winX := this.currentX - (w - this.width) / 2
-        winY := this.currentY - (h - this.height) / 2
-
+        w := this.bufferWidth
+        h := this.bufferHeight
 
         if (!this._windowShown) {
             this._windowShown := true
-            this.gui.Show("NA")
+            try {
+                this.gui.Show("NA")
+            } catch {
+                this._windowShown := false
+                return
+            }
         }
 
-        UpdateLayeredWindow(this.hwnd, this.hdc, winX, winY, w, h, alpha)
+        UpdateLayeredWindow(this.hwnd, this.hdc, x, y, w, h, alpha)
     }
 
     DrawIcon(x, y, size, iconType, pal) {
@@ -1478,11 +1631,10 @@ class Toast {
     }
 
     DrawProgressBar(pal) {
-        barHeight := 4
-        barY := this.height - barHeight - 4
-        barX := 8
-        barWidth := this.width - 16
-
+        barHeight := 3
+        barY := this.height - barHeight - 7
+        barX := 14
+        barWidth := this.width - 28
 
         Gdip_FillRoundedRectangle(this.GCache, pal.progressBgBrush, barX, barY, barWidth, barHeight, 2)
 
@@ -1566,244 +1718,172 @@ class Toast {
         this.currentX := startX
         this.currentY := startY
 
+        this._initialized := true
 
     }
 
     AnimateIn() {
+        ; Resolver dirección de entrada
+        this.resolvedEntrance := this.animEntrance
+
+        if (this.resolvedEntrance == "auto") {
+            pos := Toastify.position
+            if (InStr(pos, "right") || pos == "right")
+                this.resolvedEntrance := "right"
+            else if (InStr(pos, "left") || pos == "left")
+                this.resolvedEntrance := "left"
+            else if (InStr(pos, "top") || pos == "top")
+                this.resolvedEntrance := "top"
+            else
+                this.resolvedEntrance := "right"
+        }
+
+        ; Configurar posición de inicio basada en dirección
+        switch this.resolvedEntrance {
+            case "right":
+                this.animStartX := A_ScreenWidth + 20
+                this.animStartY := this.targetY
+            case "left":
+                this.animStartX := -this.width - 20
+                this.animStartY := this.targetY
+            case "top":
+                this.animStartX := this.targetX
+                this.animStartY := -this.height - 20
+            case "bottom":
+                this.animStartX := this.targetX
+                this.animStartY := A_ScreenHeight + 20
+            default:
+                this.animStartX := A_ScreenWidth + 20
+                this.animStartY := this.targetY
+        }
+
+        this.currentX := this.animStartX
+        this.currentY := this.animStartY
+
+        ; Configurar flags de animación
+        this._hasSlide := false
+        this._hasFade := false
+        this._hasZoom := false
+        this._hasRotate := false
+
+        for style in this.animStyle {
+            switch style {
+                case "slide": this._hasSlide := true
+                case "fade": this._hasFade := true
+                case "zoom": this._hasZoom := true
+                case "rotate": this._hasRotate := true
+            }
+        }
+
+        ; Valores iniciales de animación
+        this.opacity := this._hasFade ? 0 : 1
+        this.scale := this._hasZoom ? 0.5 : 1
+        this.rotation := this._hasRotate ? 10 : 0
+
         this.animState := "in"
         this.animStartTime := A_TickCount
-        this.progressStartTime := A_TickCount + this.animDuration
-
-
-        this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
+        this._initialized := true
     }
 
     Tick() {
-        if (!this.hwnd)
-            return
-
         now := A_TickCount
-        dirty := false
 
-        if (this.animState != "out" && this.autoDismiss) {
-            if !(Toastify.hoverPauseEnabled && this.hovered && this.progressPaused) {
-                dynDuration := this.duration
-                if (this.hwnd && Toastify.registry.Has(this.hwnd))
-                    dynDuration := Toastify.registry[this.hwnd].duration
-                maxLifetime := dynDuration + (this.animDuration * 2) + 1000
-                if ((now - this.creationTime) > maxLifetime) {
-                    this.StartExit()
-                    return
-                }
-            }
-        }
-
-
+        ; ── Animación de reposicionamiento (Reflow) ──
         if (this.repoActive) {
-            if (Abs(this.currentX - this.repoTargetX) < 0.5 && Abs(this.currentY - this.repoTargetY) < 0.5) {
+            elapsed := now - this.repoStartTime
+            progress := Min(1.0, elapsed / Max(1, this.repoDuration))
+            eased := ToastEasing.getEasing("easeOutCubic", progress)
+
+            this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
+            this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
+
+            if (progress >= 1.0) {
                 this.repoActive := false
-            } else {
-                elapsed := now - this.repoStartTime
-                if (elapsed >= this.repoDuration) {
-                    this.currentX := this.repoTargetX
-                    this.currentY := this.repoTargetY
-                    this.repoActive := false
-                    dirty := true
-                } else {
-                    t := elapsed / this.repoDuration
-                    ease := ToastEasing.getEasing("easeOutCubic", t)
-                    this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * ease
-                    this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * ease
-                    dirty := true
-                }
+                this.currentX := this.repoTargetX
+                this.currentY := this.repoTargetY
+                this.Draw()
+                this.UpdateWindow(this.currentX, this.currentY)
+                return
             }
+            this.Draw()
+            return
         }
 
 
-        if (this.animState == "in" || this.animState == "out") {
+        ; ── Animación de entrada ──
+        if (this.animState == "in") {
             elapsed := now - this.animStartTime
-            easeT := 0
+            progress := Min(1.0, elapsed / Max(1, this.animDuration))
+            eased := ToastEasing.getEasing(this.animEasing, progress)
 
-            if (elapsed < this.animDuration) {
-                easeT := elapsed / this.animDuration
-                ease := ToastEasing.getEasing(this.animEasing, easeT)
-
-
-                if (this.animState == "in") {
-
-                    if (this._hasSlide) {
-                        entrance := this.resolvedEntrance
-
-                        offX := 0, offY := 0
-                        if (entrance == "right")
-                            offX := (A_ScreenWidth - this.targetX) * (1 - ease)
-                        else if (entrance == "left")
-                            offX := (-this.width - this.targetX) * (1 - ease)
-                        else if (entrance == "top")
-                            offY := (-this.height - this.targetY) * (1 - ease)
-                        else if (entrance == "bottom")
-                            offY := (A_ScreenHeight - this.targetY) * (1 - ease)
-
-                        this.currentX := this.targetX + offX
-                        this.currentY := this.targetY + offY
-                        dirty := true
-                    } else if (!this.repoActive) {
-                        this.currentX := this.targetX
-                        this.currentY := this.targetY
-                    }
-
-
-                    if (this._hasFade) {
-                        this.opacity := ease
-                        dirty := true
-                    } else {
-                        this.opacity := 1.0
-                    }
-
-
-                    if (this._hasZoom) {
-                        this.scale := ease
-                        dirty := true
-                    } else {
-                        this.scale := 1.0
-                    }
-
-
-                    if (this._hasRotate) {
-                        this.rotation := -90.0 * (1.0 - ease)
-                        dirty := true
-                    } else {
-                        this.rotation := 0.0
-                    }
-                }
-                else {
-
-                    if (this._hasSlide) {
-                        entrance := this.resolvedEntrance
-
-                        offX := 0, offY := 0
-                        if (entrance == "right")
-                            offX := (A_ScreenWidth - this.targetX) * ease
-                        else if (entrance == "left")
-                            offX := (-this.width - this.targetX) * ease
-                        else if (entrance == "top")
-                            offY := (-this.height - this.targetY) * ease
-                        else if (entrance == "bottom")
-                            offY := (A_ScreenHeight - this.targetY) * ease
-
-                        this.currentX := this.targetX + offX
-                        this.currentY := this.targetY + offY
-                        dirty := true
-                    }
-
-
-                    if (this._hasFade) {
-                        this.opacity := 1.0 - ease
-                        dirty := true
-                    } else {
-                        this.opacity := 1.0
-                    }
-
-
-                    if (this._hasZoom) {
-                        this.scale := 1.0 - ease
-                        dirty := true
-                    } else {
-                        this.scale := 1.0
-                    }
-
-
-                    if (this._hasRotate) {
-
-                        diag := Sqrt(this.width ** 2 + this.height ** 2)
-                        requiredSize := Ceil(diag)
-                        if (this.bufferWidth < requiredSize || this.bufferHeight < requiredSize) {
-                            this.ResizeBuffer(requiredSize, requiredSize)
-                        }
-
-                        this.rotation := 90.0 * ease
-                        dirty := true
-                    } else {
-                        this.rotation := 0.0
-                    }
-                }
+            if (this._hasSlide) {
+                this.currentX := this.animStartX + (this.targetX - this.animStartX) * eased
+                this.currentY := this.animStartY + (this.targetY - this.animStartY) * eased
             } else {
-
-                if (this.animState == "in") {
-                    this.animState := "idle"
-                    this.currentX := this.targetX
-                    this.currentY := this.targetY
-                    this.opacity := 1.0
-                    this.scale := 1.0
-                    this.rotation := 0.0
-                    if (this._hasZoom || this._hasRotate) {
-                        if (this.bufferWidth > this.width || this.bufferHeight > this.height) {
-                            this.ShrinkBuffer()
-                        }
-                        this.RenderToWindow()
-                    }
-                    if (this.repoActive) {
-                        this.repoActive := false
-                    }
-                    dirty := true
-                } else {
-
-                    this.opacity := 0
-                    this.scale := 0
-                    if (this._hasRotate)
-                        this.rotation := 90.0
-                    this.Dismiss()
-                    return
-                }
+                this.currentX := this.targetX
+                this.currentY := this.targetY
             }
+
+            this.opacity := this._hasFade ? eased : 1.0
+            this.scale := this._hasZoom ? (0.5 + 0.5 * eased) : 1.0
+            this.rotation := this._hasRotate ? ((1 - eased) * 10 * (this.resolvedEntrance == "left" ? -1 : 1)) : 0
+
+            if (progress >= 1.0) {
+                this.animState := "visible"
+                this.currentX := this.targetX   ; <-- targetX puede haber cambiado por reflow
+                this.currentY := this.targetY   ; <-- ídem
+                this.opacity := 1.0
+                this.scale := 1.0
+                this.rotation := 0
+                this.progressStartTime := now
+                this.repoActive := false          ; cancelar cualquier repo pendiente
+            }
+            this.Draw()
+            return
         }
 
+        ; ── Animación de salida ──
+        if (this.animState == "out") {
+            elapsed := now - this.animStartTime
+            progress := Min(1.0, elapsed / Max(1, this.animDuration))
+            eased := ToastEasing.getEasing(this.animEasing, progress)
 
-        if (this.showProgress && this.duration > 0 && this.animState != "out") {
-            if (!this.progressPaused) {
-                if (now >= this.progressStartTime) {
-                    elapsed := now - this.progressStartTime
-                    newProgress := Min(1.0, elapsed / this.duration)
+            ; Usar coordenadas de salida absolutas
+            if (this._hasSlide) {
+                this.currentX := this.exitStartX + (this.exitTargetX - this.exitStartX) * eased
+                this.currentY := this.exitStartY + (this.exitTargetY - this.exitStartY) * eased
+            }
 
-                    if (newProgress != this.progress) {
-                        this.progress := newProgress
+            this.opacity := this._hasFade ? (1.0 - eased) : 1.0
+            this.scale := this._hasZoom ? (1.0 - 0.5 * eased) : 1.0
+            this.rotation := this._hasRotate ? (eased * 10 * (this.resolvedEntrance == "left" ? 1 : -1)) : 0
 
-                        if (Abs(newProgress - this.lastProgress) > 0.005 || newProgress >= 1.0) {
-                            this.lastProgress := newProgress
-                            this.cacheDirty := true
-                            this.Draw()
-                            dirty := true
-                        }
-                    }
+            this.Draw()
+            return
+        }
 
-                    if (this.progress >= 1.0) {
-                        if (this.lastProgress < 1.0) {
-                            this.lastProgress := 1.0
-                            this.cacheDirty := true
-                            this.Draw()
-                            dirty := true
+        ; ── Estado visible: actualizar progreso ──
+        if (this.animState == "visible") {
+            if (this.showProgress && this.duration > 0 && !this.progressPaused) {
+                elapsed := now - this.progressStartTime
+                this.progress := Min(1.0, elapsed / this.duration)
+
+                ; Solo redibujar la barra si el progreso cambió visualmente
+                if (Abs(this.progress - this.lastProgress) > 0.005) {
+                    this.cacheDirty := true
+                    this.lastProgress := this.progress
+                }
+
+                this.Draw()
+
+                if (this.progress >= 1.0) {
+                    if (this.autoDismiss) {
+                        if (!this.progressCompleteTime)
                             this.progressCompleteTime := now
-                        }
-
-                        if (this.progressCompleteTime > 0 && (now - this.progressCompleteTime) > Toast.progressGracePeriod) {
+                        else if (now - this.progressCompleteTime > Toast.progressGracePeriod)
                             this.StartExit()
-                            return
-                        }
-
-                        if (!this.hovered || !Toastify.hoverPauseEnabled) {
-                            this.StartExit()
-                            return
-                        }
                     }
                 }
-            }
-        }
-
-        if (dirty) {
-            if (this.rotation != 0 || this.scale != 1.0) {
-                this.RenderToWindow()
-            } else {
-                this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
             }
         }
     }
@@ -1812,43 +1892,54 @@ class Toast {
         if (this.animState == "out")
             return
 
-        this.animState := "out"
-        this.animStartTime := A_TickCount
-        this.userInitiatedExit := true
+        ; ═══════════════════════════════════════════════════════════════
+        ; FIJAR POSICIÓN DE SALIDA basada en dirección de entrada
+        ; Esto evita que el reflow cambie la dirección de salida
+        ; ═══════════════════════════════════════════════════════════════
+        this.exitStartX := this.currentX
+        this.exitStartY := this.currentY
 
-
-        if (this._hasRotate) {
-            diag := Sqrt(this.width ** 2 + this.height ** 2)
-            this.ResizeBuffer(Ceil(diag), Ceil(diag))
+        switch this.resolvedEntrance {
+            case "right":
+                this.exitTargetX := A_ScreenWidth + 20
+                this.exitTargetY := this.currentY
+            case "left":
+                this.exitTargetX := -this.width - 20
+                this.exitTargetY := this.currentY
+            case "top":
+                this.exitTargetX := this.currentX
+                this.exitTargetY := -this.height - 20
+            case "bottom":
+                this.exitTargetX := this.currentX
+                this.exitTargetY := A_ScreenHeight + 20
+            default:
+                this.exitTargetX := A_ScreenWidth + 20
+                this.exitTargetY := this.currentY
         }
 
+        this.animState := "out"
+        this.animStartTime := A_TickCount
 
-        idx := 0
+        ; Remover de toasts activos
         for i, t in Toastify.toasts {
             if (t == this) {
-                idx := i
+                Toastify.toasts.RemoveAt(i)
                 break
             }
         }
-        if (idx > 0) {
-            Toastify.toasts.RemoveAt(idx)
+
+        ; Agregar a toasts saliendo
+        local found := false
+        for t in Toastify.exitingToasts {
+            if (t == this) {
+                found := true
+                break
+            }
         }
+        if (!found)
+            Toastify.exitingToasts.Push(this)
 
-
-        Toastify.exitingToasts.Push(this)
-
-
-        Toastify.__reflow(true)
-
-
-        if (this.onCloseCallback) {
-            try this.onCloseCallback(this)
-        }
-
-
-        if (Toastify.registry.Has(this.hwnd)) {
-            Toastify.registry.Delete(this.hwnd)
-        }
+        ; Toastify.__reflow(true)
     }
 
     ForceClose() {
@@ -1942,53 +2033,72 @@ class Toast {
         }
     }
 
-    Dismiss() {
-        this.Destroy()
+    Dismiss(instant := false) {
+        ; ══════════════════════════════════════════════════════════════
+        ; FIX: si no es instantáneo y el toast todavía no está saliendo,
+        ; disparamos la animación de salida y dejamos que el propio loop
+        ; de animación (__globalTick) llame a Dismiss(true) cuando termine.
+        ; ══════════════════════════════════════════════════════════════
+        if (!instant && this.animState != "out") {
+            this.StartExit()
+            return
+        }
 
-
+        ; ── Remoción real (instantánea, o ya terminó de animar) ──
         for i, t in Toastify.exitingToasts {
-            if (t = this) {
+            if (t == this) {
                 Toastify.exitingToasts.RemoveAt(i)
                 break
             }
         }
 
-
         for i, t in Toastify.toasts {
-            if (t = this) {
+            if (t == this) {
                 Toastify.toasts.RemoveAt(i)
                 break
             }
         }
 
+        if (this.hwnd && Toastify.registry.Has(this.hwnd))
+            Toastify.registry.Delete(this.hwnd)
 
-        Toastify.__reflow(true)
+        this.Destroy()
     }
 
-    Destroy() {
-        if (this.hwnd && Toastify.registry.Has(this.hwnd)) {
-            Toastify.registry.Delete(this.hwnd)
-        }
 
-        if (this.hdc) {
-            SelectObject(this.hdc, this.obm)
-            DeleteObject(this.hbm)
-            DeleteDC(this.hdc)
-            Gdip_DeleteGraphics(this.G)
-            this.hdc := 0
+    Destroy() {
+        if (!this.hwnd)
+            return
+
+        ; Limpiar recursos GDI+ primero
+        if (this.GCache) {
+            Gdip_DeleteGraphics(this.GCache)
+            this.GCache := 0
         }
         if (this.pBitmapCache) {
             Gdip_DisposeImage(this.pBitmapCache)
             this.pBitmapCache := 0
         }
-        if (this.GCache) {
-            Gdip_DeleteGraphics(this.GCache)
-            this.GCache := 0
+        if (this.G) {
+            Gdip_DeleteGraphics(this.G)
+            this.G := 0
         }
-        if (this.gui) {
-            this.gui.Destroy()
-            this.gui := 0
-            this.hwnd := 0
+        if (this.hbm) {
+            SelectObject(this.hdc, this.obm)
+            DeleteObject(this.hbm)
+            this.hbm := 0
         }
+        if (this.hdc) {
+            DeleteDC(this.hdc)
+            this.hdc := 0
+        }
+
+        ; Destruir GUI de forma segura
+        hwnd := this.hwnd
+        this.hwnd := 0
+        this.gui := 0  ; ← Importante: invalidar referencia antes de destruir
+
+        if (DllCall("IsWindow", "ptr", hwnd))
+            DllCall("DestroyWindow", "ptr", hwnd)
     }
 }

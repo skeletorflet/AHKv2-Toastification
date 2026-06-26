@@ -2422,6 +2422,20 @@ Gdip_DrawString(pGraphics, sString, hFont, hFormat, pBrush, &RectF)
 
 ;#####################################################################################
 
+Gdip_CreateBitmapFromGraphics(Width, Height, pGraphics)
+{
+    DllCall(
+        "gdiplus\GdipCreateBitmapFromGraphics",
+        "Int", Width,
+        "Int", Height,
+        "Ptr", pGraphics,
+        "Ptr*", &pBitmap := 0
+    )
+    return pBitmap
+}
+
+;#####################################################################################
+
 Gdip_MeasureString(pGraphics, sString, hFont, hFormat, &RectF)
 {
 	RC := Buffer(16)
