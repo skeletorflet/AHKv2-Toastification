@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include ToastDPI.ahk
 #Include AHKv2-Gdip\Gdip_All.ahk
 
 
@@ -180,6 +181,7 @@ class Toastify {
     static __globalTimer := 0
     static __watchdogTimer := 0
     static __lastTickTime := 0
+    static _reflowNeeded := false
     static registry := Map()
     static config := ToastConfig()
     static animStartX := 0
@@ -310,15 +312,10 @@ class Toastify {
     static RegisterTheme(name, palette) {
         ToastTheme.Register(name, palette)
     }
+
     static Start(theme := "dark", position := "top-right") {
         if !Toastify.pToken {
-            try DllCall("user32\SetProcessDpiAwarenessContext", "ptr", -4, "ptr")
-            try DllCall("Shcore\SetProcessDpiAwareness", "int", 2, "ptr", 0)
-            Toastify.dpiScale := Toastify.__getDpiScale()
-            Toastify.marginX := Round(16 * Toastify.dpiScale)
-            Toastify.marginY := Round(16 * Toastify.dpiScale)
-            Toastify.spacing := Round(12 * Toastify.dpiScale)
-            Toastify.__applyDpiScale()
+            ToastDPI.Init()                         ; Per-Monitor v2 awareness
             pt := Gdip_Startup()
             if !pt {
                 MsgBox("GDI+ startup failed")
@@ -327,7 +324,8 @@ class Toastify {
             Toastify.pToken := pt
             ToastTheme.InitThemes()
             OnExit((*) => Toastify.Shutdown())
-            OnMessage(0x201, (wParam, lParam, msg, hwnd) => Toastify.__Click(wParam, lParam, msg, hwnd))
+            OnMessage(0x201, (wParam, lParam, msg, hwnd) =>
+                Toastify.__Click(wParam, lParam, msg, hwnd))
             DllCall("Winmm.dll\timeBeginPeriod", "UInt", 2)
             ProcessSetPriority(Toastify.PRIORITY.HIGH)
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
@@ -341,6 +339,7 @@ class Toastify {
         Toastify.theme := theme
         Toastify.position := position
     }
+
     static dpiScale := 1.0
 
     static __getDpiScale() {
@@ -387,7 +386,6 @@ class Toastify {
     }
 
     static __watchdogTick(*) {
-        Critical()
         now := A_TickCount
         toRemove := []
         for hwnd, data in Toastify.registry {
@@ -489,23 +487,60 @@ class Toastify {
             opts.theme := Toastify.theme
         if !opts.HasProp("position")
             opts.position := Toastify.position
-        if (Toastify.toasts.Length >= Toastify.maxToasts)
-            if (Toastify.toasts.Length > 0) {
-                oldestToast := Toastify.toasts[1]
-                oldestToast.StartExit()
+
+        ; calcular cuántos toasts visibles hay en la misma posición
+        pos := opts.position
+        wa := ToastDPI.WorkArea(0, 0)
+        dpi := ToastDPI.Primary()
+        marginY := ToastDPI.Px(16, dpi)
+        spacing := ToastDPI.Px(12, dpi)
+
+        availableH := wa.h - marginY * 2
+        usedH := 0
+        toastsInPos := 0
+        for t in Toastify.toasts {
+            if (t.position = pos) {
+                usedH += t.height + spacing
+                toastsInPos++
             }
+        }
+        ; altura estimada del nuevo toast
+        estHeight := ToastDPI.Px(120, dpi)
+        if (usedH + estHeight > availableH && toastsInPos > 0) {
+            ; expulsar el más viejo de esa posición
+            for t in Toastify.toasts {
+                if (t.position = pos) {
+                    t.StartExit()
+                    break
+                }
+            }
+        }
+
+        ; hard cap global
+        if (Toastify.toasts.Length >= Toastify.maxToasts) {
+            Toastify.toasts[1].StartExit()
+        }
+
         t := Toast(title, body, actions, opts)
         Toastify.toasts.Push(t)
         Toastify.__reflow(true)
         t.InitAnimation()
+        for existing in Toastify.toasts
+            if (existing != t && existing.animState == "visible" && !existing.progressPaused) {
+                existing._pausedForNewToast := true
+                existing.progressPaused := true
+                existing.progressPauseTime := A_TickCount
+            }
         t.AnimateIn()
         t.Draw()
+        Toastify._reflowNeeded := true
         return t
     }
 
     static __reflow(animate := true) {
         if (Toastify.toasts.Length = 0)
             return
+
         groups := Map()
         for t in Toastify.toasts {
             pos := t.position
@@ -513,35 +548,61 @@ class Toastify {
                 groups[pos] := []
             groups[pos].Push(t)
         }
-        screenCX := A_ScreenWidth // 2
-        screenCY := A_ScreenHeight // 2
+
         now := A_TickCount
+
         for pos, group in groups {
+            refT := group[1]
+            refX := refT.currentX > 0 ? refT.currentX : 0
+            refY := refT.currentY > 0 ? refT.currentY : 0
+            wa := ToastDPI.WorkArea(refX, refY)
+            dpi := ToastDPI.ForPoint(refX, refY)
+
+            marginX := ToastDPI.Px(16, dpi)
+            marginY := ToastDPI.Px(16, dpi)
+            spacing := ToastDPI.Px(12, dpi)
+
             isBottom := InStr(pos, "bottom") || pos = "bottom"
             isMidV := (pos = "left" || pos = "right" || pos = "center")
             total := group.Length
+
+            waSCX := wa.x + wa.w // 2
+            waSCY := wa.y + wa.h // 2
+
             _getX(t) {
                 if (InStr(pos, "right") || pos = "right")
-                    return A_ScreenWidth - Toastify.marginX - t.width
+                    return wa.x + wa.w - marginX - t.width
                 if (InStr(pos, "left") || pos = "left")
-                    return Toastify.marginX
-                return screenCX - t.width // 2
+                    return wa.x + marginX
+                return waSCX - t.width // 2
             }
+
+            ; ── calcular cuánto espacio disponible hay ──────────────
+            availableH := wa.h - marginY * 2
+
+            ; ── calcular targets y detectar overflow ────────────────
             targets := []
+
             if (!isBottom && !isMidV) {
-                cursor := Toastify.marginY
+                cursor := wa.y + marginY
                 for t in group {
+                    if (cursor + t.height > wa.y + wa.h - marginY)
+                        break   ; simplemente no asignar posición a los que no caben
                     targets.Push({ x: _getX(t), y: cursor })
-                    cursor += t.height + Toastify.spacing
+                    cursor += t.height + spacing
                 }
             } else if (isBottom) {
-                cursor := A_ScreenHeight - Toastify.marginY
+                cursor := wa.y + wa.h - marginY
                 loop total {
                     idx := total + 1 - A_Index
                     t := group[idx]
                     cursor -= t.height
+                    if (cursor < wa.y + marginY) {
+                        cursor += t.height  ; revertir
+                        break
+                    }
                     targets.Push({ x: _getX(t), y: cursor })
-                    cursor -= Toastify.spacing
+                    cursor -= spacing
                 }
                 reversed := []
                 loop targets.Length
@@ -550,19 +611,23 @@ class Toastify {
             } else {
                 totalH := 0
                 for t in group
-                    totalH += t.height + Toastify.spacing
-                totalH -= Toastify.spacing
-                cursor := screenCY - totalH // 2
+                    totalH += t.height + spacing
+                totalH -= spacing
+                cursor := waSCY - totalH // 2
                 for t in group {
                     targets.Push({ x: _getX(t), y: cursor })
-                    cursor += t.height + Toastify.spacing
+                    cursor += t.height + spacing
                 }
             }
+
             for idx, t in group {
+                if (idx > targets.Length)
+                    break
                 x := targets[idx].x
                 y := targets[idx].y
                 t.targetX := x
                 t.targetY := y
+
                 if (!t._initialized) {
                     t.currentX := x
                     t.currentY := y
@@ -593,13 +658,13 @@ class Toastify {
             }
         }
     }
-
     static __globalTick(*) {
-        Critical()
         now := A_TickCount
         elapsed := now - Toastify.__lastTickTime
         Toastify.__lastTickTime := now
         SetTimer(Toastify.__globalTimer, -Max(1, 16 - elapsed))
+
+        ; lógica de expiración (liviana)
         while (Toastify.toasts.Length > Toastify.maxToasts) {
             if (Toastify.toasts.Length > 0) {
                 t := Toastify.toasts[1]
@@ -618,6 +683,7 @@ class Toastify {
             } else
                 break
         }
+
         toastsToExit := []
         for t in Toastify.toasts {
             if (t.animState == "out") {
@@ -628,6 +694,7 @@ class Toastify {
         }
         for t in toastsToExit
             t.StartExit()
+
         i := 1
         while (i <= Toastify.exitingToasts.Length) {
             t := Toastify.exitingToasts[i]
@@ -638,7 +705,13 @@ class Toastify {
             } else
                 i++
         }
+
+        if (Toastify._reflowNeeded) {
+            Toastify.__reflow(true)
+            Toastify._reflowNeeded := false
+        }
     }
+
     static __checkHover(t, x, y) {
         if (!t.hwnd)
             return
@@ -657,7 +730,6 @@ class Toastify {
         }
     }
     static __mouseTimerTick(*) {
-        Critical()
         MouseGetPos(&x, &y)
         for t in Toastify.toasts
             Toastify.__checkHover(t, x, y)
@@ -1013,6 +1085,8 @@ class Toast {
     _hasFade := false
     _hasZoom := false
     _hasRotate := false
+    _baseCfg := 0
+    dpiFactor := 1.0
     bufferWidth := 0
     bufferHeight := 0
     progress := 0.0
@@ -1119,40 +1193,78 @@ class Toast {
             }
         }
         this.creationTime := A_TickCount
-        this.dpi := Toastify.dpiScale
-        this.__scaleMetrics()
-        this.creationTime := A_TickCount
+        this._saveBaseCfg()
         this.__createWindow()
     }
-    __scaleMetrics() {
-        d := this.dpi
-        if (d = 1.0)
-            return
-        this.width := Round(this.width * d)
-        this.height := Round(this.height * d)
-        this.fontSizeTitle := Round(this.fontSizeTitle * d)
-        this.fontSizeBody := Round(this.fontSizeBody * d)
-        this.paddingX := Round(this.paddingX * d)
-        this.paddingY := Round(this.paddingY * d)
-        this.iconSize := Round(this.iconSize * d)
-        this.borderRadius := Round(this.borderRadius * d)
-        if (this.borderWidth > 0)
-            this.borderWidth := this.borderWidth * d
+
+    __initThemeCache(pal) {
+        this._bgBrush := 0      ; se crea en drawCache con el gradiente actual
+        this._closePen := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpi)
+        this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpi)
+        this._btnRoundR := 6 * this.dpi
+    }
+    _applyDpi() {
+        ; AHK64 tiene manifest propio - SetProcessDpiAwarenessContext falla.
+        ; Windows ya maneja el scaling automáticamente para este proceso.
+        ; Nosotros NO debemos escalar: siempre factor 1.0, dpi=96.
+        this.dpi := 96
+        this.dpiFactor := 1.0
+
+        p := (pts) => pts   ; sin escala
+
+        this.width := this._baseCfg.width
+        this.height := this._baseCfg.minHeight
+        this.fontSizeTitle := this._baseCfg.fontSizeTitle
+        this.fontSizeBody := this._baseCfg.fontSizeBody
+        this.paddingX := this._baseCfg.paddingX
+        this.paddingY := this._baseCfg.paddingY
+        this.iconSize := this._baseCfg.iconSize
+        this.borderRadius := this._baseCfg.borderRadius
+        this.borderWidth := this._baseCfg.borderWidth
+        this.repoDuration := this._baseCfg.repoDuration
+    }
+    _saveBaseCfg() {
+        ; Guarda una copia de los valores de diseño a 96 DPI
+        ; (tal como llegaron de ToastConfig/opts) sin escalar.
+        this._baseCfg := {
+            width: this.width,
+            minHeight: Toastify.config.minHeight,
+            fontSizeTitle: this.fontSizeTitle,
+            fontSizeBody: this.fontSizeBody,
+            paddingX: this.paddingX,
+            paddingY: this.paddingY,
+            iconSize: this.iconSize,
+            borderRadius: this.borderRadius,
+            borderWidth: this.borderWidth,
+            repoDuration: this.repoDuration
+        }
     }
     __createWindow() {
         this.gui := Gui("-Caption +E0x80000 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs")
         this.hwnd := this.gui.Hwnd
         this._windowShown := false
+
+        ; ── DPI real del monitor donde va a aparecer ──────────────
+        ; En este momento targetX/Y ya están asignados por __reflow.
+        ; Si todavía son 0 usamos el punto 0,0 (monitor primario).
+        this._applyDpi()
+
+        ; buffers en px físicos ya escalados
         this.bufferWidth := this.width
         this.bufferHeight := this.height
+
         this.hbm := CreateDIBSection(this.bufferWidth, this.bufferHeight)
         this.hdc := CreateCompatibleDC()
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         Gdip_SetSmoothingMode(this.G, 4)
+
         this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
         this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
+
+        this.__applyRenderQuality(this.G, false)
         this.__applyRenderQuality(this.GCache, true)
+
         Toastify.registry[this.hwnd] := {
             startTime: A_TickCount,
             duration: this.autoDismiss ? this.duration : 0,
@@ -1170,7 +1282,7 @@ class Toast {
     }
     __drawCache() {
         pal := ToastTheme.palette(this.theme)
-        d := this.dpi
+        d := this.dpiFactor
         this.clickRegions := []
         Gdip_GraphicsClear(this.GCache)
         Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width, this.height, this.borderRadius)
@@ -1258,8 +1370,12 @@ class Toast {
                 Gdip_SetInterpolationMode(G, 7)
         }
     }
+    _lastRenderX := 0
+    _lastRenderY := 0
+    _lastAlpha := -1
     RenderToWindow() {
-        Gdip_GraphicsClear(this.G, 0x00000000)
+        _compositeDirty := false    ; local, indica si G fue modificado este frame
+
         drawX := (this.bufferWidth - this.width) / 2
         drawY := (this.bufferHeight - this.height) / 2
         if (this.scale != 1.0 || this.rotation != 0) {
@@ -1267,6 +1383,7 @@ class Toast {
                 this.UpdateWindow(this.currentX, this.currentY, 0)
                 return
             }
+            Gdip_GraphicsClear(this.G, 0x00000000)
             this.__applyRenderQuality(this.G, false)
             Gdip_ResetWorldTransform(this.G)
             bufCX := this.bufferWidth / 2
@@ -1281,11 +1398,24 @@ class Toast {
             Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
             Gdip_ResetClip(this.G)
             Gdip_ResetWorldTransform(this.G)
+            _compositeDirty := true
         } else {
+            Gdip_GraphicsClear(this.G, 0x00000000)
             this.__applyRenderQuality(this.G, false)
             Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
+            _compositeDirty := true
         }
-        this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
+
+        alpha := Floor(this.opacity * 255)
+        x := this.currentX
+        y := this.currentY
+
+        if (_compositeDirty || alpha != this._lastAlpha || x != this._lastRenderX || y != this._lastRenderY) {
+            this.UpdateWindow(x, y, alpha)
+            this._lastRenderX := x
+            this._lastRenderY := y
+            this._lastAlpha := alpha
+        }
     }
 
     UpdateWindow(x, y, alpha := 255) {
@@ -1331,7 +1461,7 @@ class Toast {
         }
     }
     DrawCloseButton(pal) {
-        d := this.dpi
+        d := this.dpiFactor
         closeSize := 20 * d
         closeX := this.width - this.paddingX - closeSize
         closeY := this.paddingY - 4 * d
@@ -1354,7 +1484,7 @@ class Toast {
     }
 
     DrawProgressBar(pal) {
-        d := this.dpi
+        d := this.dpiFactor
         barHeight := 3 * d
         barY := this.height - barHeight - 7 * d
         barX := 14 * d
@@ -1424,7 +1554,7 @@ class Toast {
     AnimateIn() {
         this.resolvedEntrance := this.animEntrance
         if (this.resolvedEntrance == "auto") {
-            pos := Toastify.position
+            pos := this.position
             if (InStr(pos, "right") || pos == "right")
                 this.resolvedEntrance := "right"
             else if (InStr(pos, "left") || pos == "left")
@@ -1434,23 +1564,27 @@ class Toast {
             else
                 this.resolvedEntrance := "right"
         }
+
+        wa := ToastDPI.WorkArea(this.targetX, this.targetY)
+
         switch this.resolvedEntrance {
             case "right":
-                this.animStartX := A_ScreenWidth + 20
+                this.animStartX := wa.x + wa.w + 20
                 this.animStartY := this.targetY
             case "left":
-                this.animStartX := -this.width - 20
+                this.animStartX := wa.x - this.width - 20
                 this.animStartY := this.targetY
             case "top":
                 this.animStartX := this.targetX
-                this.animStartY := -this.height - 20
+                this.animStartY := wa.y - this.height - 20
             case "bottom":
                 this.animStartX := this.targetX
-                this.animStartY := A_ScreenHeight + 20
+                this.animStartY := wa.y + wa.h + 20
             default:
-                this.animStartX := A_ScreenWidth + 20
+                this.animStartX := wa.x + wa.w + 20
                 this.animStartY := this.targetY
         }
+
         this.currentX := this.animStartX
         this.currentY := this.animStartY
         this._hasSlide := false
@@ -1481,6 +1615,18 @@ class Toast {
             this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
             this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
             if (progress >= 1.0) {
+                this.animState := "visible"
+                ; reanudar toasts que pausamos por la entrada
+                for other in Toastify.toasts {
+                    if (other != this && other.HasProp("_pausedForNewToast") && other._pausedForNewToast) {
+                        other._pausedForNewToast := false
+                        other.progressPaused := false
+                        pausedDuration := A_TickCount - other.progressPauseTime
+                        other.progressStartTime += pausedDuration
+                        if (other.hwnd && Toastify.registry.Has(other.hwnd))
+                            Toastify.registry[other.hwnd].duration += pausedDuration
+                    }
+                }
                 this.repoActive := false
                 this.currentX := this.repoTargetX
                 this.currentY := this.repoTargetY
@@ -1536,11 +1682,19 @@ class Toast {
             if (this.showProgress && this.duration > 0 && !this.progressPaused) {
                 elapsed := now - this.progressStartTime
                 this.progress := Min(1.0, elapsed / this.duration)
-                if (Abs(this.progress - this.lastProgress) > 0.005) {
+                diff := Abs(this.progress - this.lastProgress)
+                if (diff > 0.005) {
                     this.cacheDirty := true
                     this.lastProgress := this.progress
+                    ; si el salto es grande (pausa larga), no dibujar intermedio
+                    if (diff < 0.15)
+                        this.Draw()
+                    else {
+                        ; salto grande: actualizar sin animar suavemente
+                        this.lastProgress := this.progress
+                        this.Draw()
+                    }
                 }
-                this.Draw()
                 if (this.progress >= 1.0) {
                     if (this.autoDismiss) {
                         if (!this.progressCompleteTime)
@@ -1555,27 +1709,33 @@ class Toast {
     StartExit() {
         if (this.animState == "out")
             return
+
+        wa := ToastDPI.WorkArea(this.currentX, this.currentY)
+
         this.exitStartX := this.currentX
         this.exitStartY := this.currentY
+
         switch this.resolvedEntrance {
             case "right":
-                this.exitTargetX := A_ScreenWidth + 20
+                this.exitTargetX := wa.x + wa.w + 20
                 this.exitTargetY := this.currentY
             case "left":
-                this.exitTargetX := -this.width - 20
+                this.exitTargetX := wa.x - this.width - 20
                 this.exitTargetY := this.currentY
             case "top":
                 this.exitTargetX := this.currentX
-                this.exitTargetY := -this.height - 20
+                this.exitTargetY := wa.y - this.height - 20
             case "bottom":
                 this.exitTargetX := this.currentX
-                this.exitTargetY := A_ScreenHeight + 20
+                this.exitTargetY := wa.y + wa.h + 20
             default:
-                this.exitTargetX := A_ScreenWidth + 20
+                this.exitTargetX := wa.x + wa.w + 20
                 this.exitTargetY := this.currentY
         }
+
         this.animState := "out"
         this.animStartTime := A_TickCount
+
         for i, t in Toastify.toasts
             if (t == this) {
                 Toastify.toasts.RemoveAt(i)
@@ -1700,6 +1860,11 @@ class Toast {
             DeleteDC(this.hdc)
             this.hdc := 0
         }
+
+        ; if (this._closePen)
+        ;     Gdip_DeletePen(this._closePen)
+        ; if (this._closePenHover)
+        ;     Gdip_DeletePen(this._closePenHover)
         hwnd := this.hwnd
         this.hwnd := 0
         this.gui := 0

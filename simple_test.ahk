@@ -12,12 +12,12 @@ mygui.AddButton(, 'Show').OnEvent('Click', clickHandler)
 mygui.AddButton(, 'DismissAll').OnEvent('Click', (*) => Toastify.DismissAll())
 
 mygui.Show()
-
+mygui.OnEvent('Close', (*)=>ExitApp())
 return
 
 clickHandler(*) {
     perm := Random(0, 1)
-    Toastify.Show("Update Available", "v2.1.0 is ready.", [{ text: "Update", onClick: (*) => Run("updater.exe") }, { text: "Later", onClick: (*) => MsgBox("Snoozed") },
+    Toastify.Warning("Update Available", "v2.1.0 is ready.", [{ text: "Update", onClick: (*) => Run("updater.exe") }, { text: "Later", onClick: (*) => MsgBox("Snoozed") },
     ], {
         animStyle: [Toastify.ANIM_STYLE.ZOOM, Toastify.ANIM_STYLE.SLIDE],
         animEasing: Toastify.EASING.BOUNCE_OUT,
