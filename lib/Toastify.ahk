@@ -314,6 +314,11 @@ class Toastify {
         if !Toastify.pToken {
             try DllCall("user32\SetProcessDpiAwarenessContext", "ptr", -4, "ptr")
             try DllCall("Shcore\SetProcessDpiAwareness", "int", 2, "ptr", 0)
+            Toastify.dpiScale := Toastify.__getDpiScale()
+            Toastify.marginX := Round(16 * Toastify.dpiScale)
+            Toastify.marginY := Round(16 * Toastify.dpiScale)
+            Toastify.spacing := Round(12 * Toastify.dpiScale)
+            Toastify.__applyDpiScale()
             pt := Gdip_Startup()
             if !pt {
                 MsgBox("GDI+ startup failed")
@@ -336,7 +341,25 @@ class Toastify {
         Toastify.theme := theme
         Toastify.position := position
     }
+    static dpiScale := 1.0
 
+    static __getDpiScale() {
+        try {
+            dpi := DllCall("GetDpiForSystem", "uint")
+            return Round(dpi / 96.0, 2)
+        } catch {
+            hdc := DllCall("GetDC", "ptr", 0, "ptr")
+            dpi := DllCall("gdi32\GetDeviceCaps", "ptr", hdc, "int", 88)
+            DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+            return Round(dpi / 96.0, 2)
+        }
+    }
+    static __applyDpiScale() {
+        s := Toastify.dpiScale
+        Toastify.marginX := Round(16 * s)
+        Toastify.marginY := Round(16 * s)
+        Toastify.spacing := Round(12 * s)
+    }
     static Shutdown(*) {
         if Toastify.__globalTimer
             SetTimer(Toastify.__globalTimer, 0)
@@ -367,7 +390,7 @@ class Toastify {
         Critical()
         now := A_TickCount
         toRemove := []
-        for hwnd, data in Toastify.registry.Clone() {
+        for hwnd, data in Toastify.registry {
             if (!DllCall("IsWindow", "ptr", hwnd)) {
                 toRemove.Push(hwnd)
                 continue
@@ -1022,6 +1045,8 @@ class Toast {
     _initialized := false
 
     __New(title, body, actions, opts) {
+        dpi := 1.0
+
         this.title := title
         this.body := body
         this.actions := actions
@@ -1094,19 +1119,37 @@ class Toast {
             }
         }
         this.creationTime := A_TickCount
+        this.dpi := Toastify.dpiScale
+        this.__scaleMetrics()
+        this.creationTime := A_TickCount
         this.__createWindow()
+    }
+    __scaleMetrics() {
+        d := this.dpi
+        if (d = 1.0)
+            return
+        this.width := Round(this.width * d)
+        this.height := Round(this.height * d)
+        this.fontSizeTitle := Round(this.fontSizeTitle * d)
+        this.fontSizeBody := Round(this.fontSizeBody * d)
+        this.paddingX := Round(this.paddingX * d)
+        this.paddingY := Round(this.paddingY * d)
+        this.iconSize := Round(this.iconSize * d)
+        this.borderRadius := Round(this.borderRadius * d)
+        if (this.borderWidth > 0)
+            this.borderWidth := this.borderWidth * d
     }
     __createWindow() {
         this.gui := Gui("-Caption +E0x80000 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs")
         this.hwnd := this.gui.Hwnd
         this._windowShown := false
-        this.hbm := CreateDIBSection(this.width, this.height)
+        this.bufferWidth := this.width
+        this.bufferHeight := this.height
+        this.hbm := CreateDIBSection(this.bufferWidth, this.bufferHeight)
         this.hdc := CreateCompatibleDC()
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         Gdip_SetSmoothingMode(this.G, 4)
-        this.bufferWidth := this.width
-        this.bufferHeight := this.height
         this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
         this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
         this.__applyRenderQuality(this.GCache, true)
@@ -1116,6 +1159,78 @@ class Toast {
             instance: this
         }
     }
+    Draw() {
+        if (!this._initialized)
+            return
+        if (this.cacheDirty) {
+            this.__drawCache()
+            this.cacheDirty := false
+        }
+        this.RenderToWindow()
+    }
+    __drawCache() {
+        pal := ToastTheme.palette(this.theme)
+        d := this.dpi
+        this.clickRegions := []
+        Gdip_GraphicsClear(this.GCache)
+        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width, this.height, this.borderRadius)
+        pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
+        Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
+        Gdip_DeleteBrush(pBrush)
+        if (this.borderWidth > 0) {
+            customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
+            Gdip_DrawRoundedRectangle(this.GCache, customBorderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
+            Gdip_DeletePen(customBorderPen)
+        } else
+            Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
+
+        iconX := this.paddingX
+        iconY := this.paddingY
+        iconSize := this.iconSize
+        textStartX := this.paddingX
+        if (this.icon != "") {
+            this.DrawIcon(iconX, iconY, iconSize, this.icon, pal)
+            textStartX := iconX + iconSize + 12 * d
+        }
+        if (this.showClose)
+            this.DrawCloseButton(pal)
+
+        font := this.fontName
+        titleWidth := this.width - textStartX - (this.showClose ? 40 * d : this.paddingX)
+        if (this.title != "") {
+            titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this.fontWeightTitle
+            Gdip_TextToGraphics(this.GCache, this.title, titleOpts, font, this.width, this.height)
+        }
+        if (this.body != "") {
+            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4 * d) : this.paddingY
+            availableHeight := this.height - bodyY - this.paddingY
+            if (this.actions.Length > 0)
+                availableHeight -= 38 * d
+            if (this.showProgress && this.duration > 0)
+                availableHeight -= 12 * d
+            bodyHeight := Max(20 * d, availableHeight)
+            bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeBody " " this.fontWeightBody
+            Gdip_TextToGraphics(this.GCache, this.body, bodyOpts, font, this.width, this.height)
+        }
+        if (this.actions.Length) {
+            btnW := Round((this.width - 32 * d - (this.actions.Length - 1) * 8 * d) / this.actions.Length)
+            y := this.height - (this.showProgress ? 50 * d : 40 * d)
+            x := 16 * d
+            for idx, act in this.actions {
+                rectX := x, rectY := y, rectW := btnW, rectH := 28 * d
+
+                Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
+                Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
+                txtOpts := "x" (rectX + 10 * d) " y" (rectY + 6 * d) " w" (rectW - 20 * d) " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
+                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
+                this.clickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
+                x += btnW + 8 * d
+            }
+        }
+        if (this.showProgress && this.duration > 0)
+            this.DrawProgressBar(pal)
+    }
+
     __applyRenderQuality(G, isCache := false) {
         if (this.renderQuality = "Low") {
             Gdip_SetSmoothingMode(G, 1)
@@ -1143,74 +1258,6 @@ class Toast {
                 Gdip_SetInterpolationMode(G, 7)
         }
     }
-    Draw() {
-        if (!this._initialized)
-            return
-        if (this.cacheDirty) {
-            this.__drawCache()
-            this.cacheDirty := false
-        }
-        this.RenderToWindow()
-    }
-    __drawCache() {
-        pal := ToastTheme.palette(this.theme)
-        this.clickRegions := []
-        Gdip_GraphicsClear(this.GCache)
-        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4, 4, this.width, this.height, this.borderRadius)
-        pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
-        Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
-        Gdip_DeleteBrush(pBrush)
-        if (this.borderWidth > 0) {
-            customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
-            Gdip_DrawRoundedRectangle(this.GCache, customBorderPen, 2, 2, this.width - 4, this.height - 4, this.borderRadius - 1)
-            Gdip_DeletePen(customBorderPen)
-        } else
-            Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2, 2, this.width - 4, this.height - 4, this.borderRadius - 1)
-        iconX := this.paddingX
-        iconY := this.paddingY
-        iconSize := this.iconSize
-        textStartX := this.paddingX
-        if (this.icon != "") {
-            this.DrawIcon(iconX, iconY, iconSize, this.icon, pal)
-            textStartX := iconX + iconSize + 12
-        }
-        if (this.showClose)
-            this.DrawCloseButton(pal)
-        font := this.fontName
-        titleWidth := this.width - textStartX - (this.showClose ? 40 : this.paddingX)
-        if (this.title != "") {
-            titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this.fontWeightTitle
-            Gdip_TextToGraphics(this.GCache, this.title, titleOpts, font, this.width, this.height)
-        }
-        if (this.body != "") {
-            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4) : this.paddingY
-            availableHeight := this.height - bodyY - this.paddingY
-            if (this.actions.Length > 0)
-                availableHeight -= 38
-            if (this.showProgress && this.duration > 0)
-                availableHeight -= 12
-            bodyHeight := Max(20, availableHeight)
-            bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeBody " " this.fontWeightBody
-            Gdip_TextToGraphics(this.GCache, this.body, bodyOpts, font, this.width, this.height)
-        }
-        if (this.actions.Length) {
-            btnW := (this.width - 32 - (this.actions.Length - 1) * 8) // this.actions.Length
-            y := this.height - (this.showProgress ? 50 : 40)
-            x := 16
-            for idx, act in this.actions {
-                rectX := x, rectY := y, rectW := btnW, rectH := 28
-                Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6)
-                Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6)
-                txtOpts := "x" (rectX + 10) " y" (rectY + 6) " w" (rectW - 20) " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
-                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
-                this.clickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
-                x += btnW + 8
-            }
-        }
-        if (this.showProgress && this.duration > 0)
-            this.DrawProgressBar(pal)
-    }
-
     RenderToWindow() {
         Gdip_GraphicsClear(this.G, 0x00000000)
         drawX := (this.bufferWidth - this.width) / 2
@@ -1239,22 +1286,6 @@ class Toast {
             Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
         }
         this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
-    }
-
-    ShrinkBuffer() {
-        if (this.animState == "in" || this.animState == "out")
-            return
-        if (this.bufferWidth <= this.width && this.bufferHeight <= this.height)
-            return
-        SelectObject(this.hdc, this.obm)
-        DeleteObject(this.hbm)
-        Gdip_DeleteGraphics(this.G)
-        this.bufferWidth := this.width
-        this.bufferHeight := this.height
-        this.hbm := CreateDIBSection(this.width, this.height)
-        this.obm := SelectObject(this.hdc, this.hbm)
-        this.G := Gdip_GraphicsFromHDC(this.hdc)
-        Gdip_SetSmoothingMode(this.G, 4)
     }
 
     UpdateWindow(x, y, alpha := 255) {
@@ -1300,9 +1331,10 @@ class Toast {
         }
     }
     DrawCloseButton(pal) {
-        closeSize := 20
+        d := this.dpi
+        closeSize := 20 * d
         closeX := this.width - this.paddingX - closeSize
-        closeY := this.paddingY - 4
+        closeY := this.paddingY - 4 * d
         this.clickRegions.Push({
             x: closeX, y: closeY, w: closeSize, h: closeSize,
             cb: (*) => this.ForceClose(),
@@ -1310,31 +1342,30 @@ class Toast {
         })
         if (this.closeHovered) {
             pBrushHover := Gdip_BrushCreateSolid(0x33FFFFFF)
-            Gdip_FillEllipse(this.GCache, pBrushHover, closeX - 2, closeY - 2, closeSize + 4, closeSize + 4)
+            Gdip_FillEllipse(this.GCache, pBrushHover, closeX - 2 * d, closeY - 2 * d, closeSize + 4 * d, closeSize + 4 * d)
             Gdip_DeleteBrush(pBrushHover)
         }
         color := this.closeHovered ? 0xFFFFFFFF : 0xAAFFFFFF
-        pPen := Gdip_CreatePen(color, 2)
-        offset := 6
-        Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY +
-            closeSize -
-            offset)
-        Gdip_DrawLine(this.GCache, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY +
-            closeSize -
-            offset)
+        pPen := Gdip_CreatePen(color, 2 * d)
+        offset := 6 * d
+        Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY + closeSize - offset)
+        Gdip_DrawLine(this.GCache, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY + closeSize - offset)
         Gdip_DeletePen(pPen)
     }
+
     DrawProgressBar(pal) {
-        barHeight := 3
-        barY := this.height - barHeight - 7
-        barX := 14
-        barWidth := this.width - 28
-        Gdip_FillRoundedRectangle(this.GCache, pal.progressBgBrush, barX, barY, barWidth, barHeight, 2)
+        d := this.dpi
+        barHeight := 3 * d
+        barY := this.height - barHeight - 7 * d
+        barX := 14 * d
+        barWidth := this.width - 28 * d
+        Gdip_FillRoundedRectangle(this.GCache, pal.progressBgBrush, barX, barY, barWidth, barHeight, 2 * d)
         if (this.progress > 0) {
             fillWidth := barWidth * this.progress
-            Gdip_FillRoundedRectangle(this.GCache, pal.progressFillBrush, barX, barY, fillWidth, barHeight, 2)
+            Gdip_FillRoundedRectangle(this.GCache, pal.progressFillBrush, barX, barY, fillWidth, barHeight, 2 * d)
         }
     }
+
     HasAnim(name) {
         for style in this.animStyle
             if (style == name)
@@ -1390,7 +1421,6 @@ class Toast {
         this.currentY := startY
         this._initialized := true
     }
-
     AnimateIn() {
         this.resolvedEntrance := this.animEntrance
         if (this.resolvedEntrance == "auto") {
@@ -1442,7 +1472,6 @@ class Toast {
         this.animStartTime := A_TickCount
         this._initialized := true
     }
-
     Tick() {
         now := A_TickCount
         if (this.repoActive) {
