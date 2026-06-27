@@ -1,41 +1,31 @@
 #Requires AutoHotkey v2.0
+#Include ToastDPI.ahk
 #Include AHKv2-Gdip\Gdip_All.ahk
 
 
 class ToastEasing {
     static defaultEasing := "easeOutCubic"
-
-
+    static funcs := 0
     static linear(t) => t
-
-
     static easeInQuad(t) => t * t
     static easeOutQuad(t) => t * (2 - t)
     static easeInOutQuad(t) => (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t)
-
-
     static easeInCubic(t) => t * t * t
     static easeOutCubic(t) => (--t) * t * t + 1
     static easeInOutCubic(t) => (t < 0.5) ? (4 * t * t * t) : ((t - 1) * (2 * t - 2) * (2 * t - 2) + 1)
-
-
     static easeInQuart(t) => t * t * t * t
     static easeOutQuart(t) => 1 - (--t) * t * t * t
     static easeInOutQuart(t) => (t < 0.5) ? (8 * t * t * t * t) : (1 - 8 * (--t) * t * t * t)
-
-
     static easeInBack(t) {
         c1 := 1.70158
         c3 := c1 + 1
         return c3 * t * t * t - c1 * t * t
     }
-
     static easeOutBack(t) {
         c1 := 1.70158
         c3 := c1 + 1
         return 1 + c3 * ((t - 1) ** 3) + c1 * ((t - 1) ** 2)
     }
-
     static easeInOutBack(t) {
         c1 := 1.70158
         c2 := c1 * 1.525
@@ -43,12 +33,87 @@ class ToastEasing {
             ? ((2 * t) ** 2 * ((c2 + 1) * 2 * t - c2)) / 2
         : ((2 * t - 2) ** 2 * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2
     }
-
-
+    static easeInQuint(t) => t * t * t * t * t
+    static easeOutQuint(t) => 1 + (--t) * t * t * t * t
+    static easeInOutQuint(t) => (t < 0.5) ? (16 * t * t * t * t * t) : (1 + 16 * (--t) * t * t * t * t)
+    static easeInSine(t) => 1 - Cos((t * 3.14159265359) / 2)
+    static easeOutSine(t) => Sin((t * 3.14159265359) / 2)
+    static easeInOutSine(t) => -(Cos(3.14159265359 * t) - 1) / 2
+    static easeInExpo(t) => (t = 0) ? 0 : (2 ** (10 * t - 10))
+    static easeOutExpo(t) => (t = 1) ? 1 : (1 - 2 ** (-10 * t))
+    static easeInOutExpo(t) {
+        if (t = 0)
+            return 0
+        if (t = 1)
+            return 1
+        return (t < 0.5) ? (2 ** (20 * t - 10)) / 2 : (2 - 2 ** (-20 * t + 10)) / 2
+    }
+    static easeInCirc(t) => 1 - Sqrt(1 - (t ** 2))
+    static easeOutCirc(t) => Sqrt(1 - ((t - 1) ** 2))
+    static easeInOutCirc(t) => (t < 0.5)
+        ? (1 - Sqrt(1 - (2 * t) ** 2)) / 2
+        : (Sqrt(1 - (-2 * t + 2) ** 2) + 1) / 2
+    static elasticIn(t) {
+        c4 := (2 * 3.14159265359) / 3
+        return (t = 0) ? 0 : (t = 1) ? 1 : -(2 ** (10 * t - 10)) * Sin((t * 10 - 10.75) * c4)
+    }
+    static elasticOut(t) {
+        c4 := (2 * 3.14159265359) / 3
+        return (t = 0) ? 0 : (t = 1) ? 1 : (2 ** (-10 * t)) * Sin((t * 10 - 0.75) * c4) + 1
+    }
+    static elasticInOut(t) {
+        c5 := (2 * 3.14159265359) / 4.5
+        return (t = 0) ? 0
+        : (t = 1) ? 1
+        : (t < 0.5) ? -((2 ** (20 * t - 10)) * Sin((20 * t - 11.125) * c5)) / 2
+        : ((2 ** (-20 * t + 10)) * Sin((20 * t - 11.125) * c5)) / 2 + 1
+    }
     static bounce(t) => ToastEasing.bounceOut(t)
-
-
-    static funcs := 0
+    static bounceOut(t) {
+        n1 := 7.5625
+        d1 := 2.75
+        if (t < 1 / d1) {
+            return n1 * t * t
+        } else if (t < 2 / d1) {
+            t -= 1.5 / d1
+            return n1 * t * t + 0.75
+        } else if (t < 2.5 / d1) {
+            t -= 2.25 / d1
+            return n1 * t * t + 0.9375
+        } else {
+            t -= 2.625 / d1
+            return n1 * t * t + 0.984375
+        }
+    }
+    static bounceIn(t) => 1 - ToastEasing.bounceOut(1 - t)
+    static bounceInOut(t) => (t < 0.5)
+        ? (1 - ToastEasing.bounceOut(1 - 2 * t)) / 2
+        : (1 + ToastEasing.bounceOut(2 * t - 1)) / 2
+    static decelerate(t) => 1 - ((1 - t) * (1 - t))
+    static ease(t) => ToastEasing.easeInOutCubic(t)
+    static easeIn(t) => ToastEasing.easeInCubic(t)
+    static easeOut(t) => ToastEasing.easeOutCubic(t)
+    static easeInOut(t) => ToastEasing.easeInOutCubic(t)
+    static fastOutSlowIn(t) => ToastEasing.easeInOutCubic(t)
+    static slowMiddle(t) {
+        if (t < 0.5)
+            return ToastEasing.easeInCubic(t * 2) / 2
+        return 0.5 + ToastEasing.easeOutCubic((t - 0.5) * 2) / 2
+    }
+    static easeInToLinear(t) => (t < 0.5) ? ToastEasing.easeInCubic(t * 2) / 2 : 0.5 + (t - 0.5)
+    static linearToEaseOut(t) => (t < 0.5) ? t : 0.5 + ToastEasing.easeOutCubic((t - 0.5) * 2) / 2
+    static fastLinearToSlowEaseIn(t) {
+        linearEnd := 0.5
+        if (t < linearEnd)
+            return t / linearEnd * 0.5
+        return 0.5 + ToastEasing.easeInCubic((t - linearEnd) / (1 - linearEnd)) / 2
+    }
+    static easeInOutCubicEmphasized(t) {
+        c := 1.4
+        if (t < 0.5)
+            return (c * 4 * t * t * t)
+        return 1 - (((-2 * t + 2) ** 3) * c) / 2
+    }
     static getEasing(name, t) {
         if (!ToastEasing.funcs) {
             ToastEasing.funcs := Map(
@@ -100,106 +165,7 @@ class ToastEasing {
         fn := ToastEasing.funcs.Has(name) ? ToastEasing.funcs[name] : 0
         return fn ? fn.Call(ToastEasing, t) : ToastEasing.%ToastEasing.defaultEasing%(t)
     }
-
-
-    static easeInQuint(t) => t * t * t * t * t
-    static easeOutQuint(t) => 1 + (--t) * t * t * t * t
-    static easeInOutQuint(t) => (t < 0.5) ? (16 * t * t * t * t * t) : (1 + 16 * (--t) * t * t * t * t)
-
-
-    static easeInSine(t) => 1 - Cos((t * 3.14159265359) / 2)
-    static easeOutSine(t) => Sin((t * 3.14159265359) / 2)
-    static easeInOutSine(t) => -(Cos(3.14159265359 * t) - 1) / 2
-
-
-    static easeInExpo(t) => (t = 0) ? 0 : (2 ** (10 * t - 10))
-    static easeOutExpo(t) => (t = 1) ? 1 : (1 - 2 ** (-10 * t))
-    static easeInOutExpo(t) {
-        if (t = 0)
-            return 0
-        if (t = 1)
-            return 1
-        return (t < 0.5) ? (2 ** (20 * t - 10)) / 2 : (2 - 2 ** (-20 * t + 10)) / 2
-    }
-
-
-    static easeInCirc(t) => 1 - Sqrt(1 - (t ** 2))
-    static easeOutCirc(t) => Sqrt(1 - ((t - 1) ** 2))
-    static easeInOutCirc(t) => (t < 0.5)
-        ? (1 - Sqrt(1 - (2 * t) ** 2)) / 2
-        : (Sqrt(1 - (-2 * t + 2) ** 2) + 1) / 2
-
-
-    static elasticIn(t) {
-        c4 := (2 * 3.14159265359) / 3
-        return (t = 0) ? 0 : (t = 1) ? 1 : -(2 ** (10 * t - 10)) * Sin((t * 10 - 10.75) * c4)
-    }
-
-    static elasticOut(t) {
-        c4 := (2 * 3.14159265359) / 3
-        return (t = 0) ? 0 : (t = 1) ? 1 : (2 ** (-10 * t)) * Sin((t * 10 - 0.75) * c4) + 1
-    }
-
-    static elasticInOut(t) {
-        c5 := (2 * 3.14159265359) / 4.5
-        return (t = 0) ? 0
-        : (t = 1) ? 1
-        : (t < 0.5) ? -((2 ** (20 * t - 10)) * Sin((20 * t - 11.125) * c5)) / 2
-        : ((2 ** (-20 * t + 10)) * Sin((20 * t - 11.125) * c5)) / 2 + 1
-    }
-
-
-    static bounceOut(t) {
-        n1 := 7.5625
-        d1 := 2.75
-        if (t < 1 / d1) {
-            return n1 * t * t
-        } else if (t < 2 / d1) {
-            t -= 1.5 / d1
-            return n1 * t * t + 0.75
-        } else if (t < 2.5 / d1) {
-            t -= 2.25 / d1
-            return n1 * t * t + 0.9375
-        } else {
-            t -= 2.625 / d1
-            return n1 * t * t + 0.984375
-        }
-    }
-
-    static bounceIn(t) => 1 - ToastEasing.bounceOut(1 - t)
-    static bounceInOut(t) => (t < 0.5)
-        ? (1 - ToastEasing.bounceOut(1 - 2 * t)) / 2
-        : (1 + ToastEasing.bounceOut(2 * t - 1)) / 2
-
-
-    static decelerate(t) => 1 - ((1 - t) * (1 - t))
-    static ease(t) => ToastEasing.easeInOutCubic(t)
-    static easeIn(t) => ToastEasing.easeInCubic(t)
-    static easeOut(t) => ToastEasing.easeOutCubic(t)
-    static easeInOut(t) => ToastEasing.easeInOutCubic(t)
-    static fastOutSlowIn(t) => ToastEasing.easeInOutCubic(t)
-    static slowMiddle(t) {
-        if (t < 0.5)
-            return ToastEasing.easeInCubic(t * 2) / 2
-        return 0.5 + ToastEasing.easeOutCubic((t - 0.5) * 2) / 2
-    }
-    static easeInToLinear(t) => (t < 0.5) ? ToastEasing.easeInCubic(t * 2) / 2 : 0.5 + (t - 0.5)
-    static linearToEaseOut(t) => (t < 0.5) ? t : 0.5 + ToastEasing.easeOutCubic((t - 0.5) * 2) / 2
-    static fastLinearToSlowEaseIn(t) {
-        linearEnd := 0.5
-        if (t < linearEnd)
-            return t / linearEnd * 0.5
-        return 0.5 + ToastEasing.easeInCubic((t - linearEnd) / (1 - linearEnd)) / 2
-    }
-    static easeInOutCubicEmphasized(t) {
-
-        c := 1.4
-        if (t < 0.5)
-            return (c * 4 * t * t * t)
-        return 1 - (((-2 * t + 2) ** 3) * c) / 2
-    }
 }
-
 
 class Toastify {
     static pToken := 0
@@ -212,13 +178,128 @@ class Toastify {
     static theme := "dark"
     static hoverPauseEnabled := true
     static maxToasts := 8
-
     static __globalTimer := 0
     static __watchdogTimer := 0
     static __lastTickTime := 0
+    static _reflowNeeded := false
     static registry := Map()
     static config := ToastConfig()
-
+    static animStartX := 0
+    static animStartY := 0
+    static ALIGN := {
+        TOP: "top",
+        BOTTOM: "bottom",
+        LEFT: "left",
+        RIGHT: "right",
+        CENTER: "center",
+        TOP_LEFT: "top-left",
+        TOP_RIGHT: "top-right",
+        BOTTOM_LEFT: "bottom-left",
+        BOTTOM_RIGHT: "bottom-right"
+    }
+    static THEMES := {
+        DARK: "dark",
+        LIGHT: "light",
+        SUCCESS: "success",
+        SUCCESS_LIGHT: "success-light",
+        ERROR: "error",
+        ERROR_LIGHT: "error-light",
+        WARNING: "warning",
+        WARNING_LIGHT: "warning-light",
+        INFO: "info",
+        INFO_LIGHT: "info-light",
+        MIDNIGHT: "midnight",
+        MIDNIGHT_LIGHT: "midnight-light",
+        FOREST: "forest",
+        FOREST_LIGHT: "forest-light",
+        NEON: "neon",
+        NEON_LIGHT: "neon-light",
+        VAPOR: "vapor",
+        VAPOR_LIGHT: "vapor-light",
+        CYBERPUNK: "cyberpunk",
+        CYBERPUNK_LIGHT: "cyberpunk-light",
+        RETRO: "retro",
+        RETRO_LIGHT: "retro-light",
+        GLASS: "glass",
+        GLASS_LIGHT: "glass-light",
+        MINIMAL: "minimal",
+        MINIMAL_LIGHT: "minimal-light",
+        PASTEL: "pastel",
+        PASTEL_LIGHT: "pastel-light",
+        FLAT: "flat",
+        FLAT_LIGHT: "flat-light"
+    }
+    static ANIM_STYLE := {
+        SLIDE: "slide",
+        FADE: "fade",
+        ZOOM: "zoom",
+        ROTATE: "rotate"
+    }
+    static ENTRANCE := {
+        AUTO: "auto",
+        RIGHT: "right",
+        LEFT: "left",
+        TOP: "top",
+        BOTTOM: "bottom"
+    }
+    static QUALITY := {
+        LOW: "Low",
+        MEDIUM: "Medium",
+        HIGH: "High"
+    }
+    static EASING := {
+        LINEAR: "linear",
+        EASE_IN_QUAD: "easeInQuad",
+        EASE_OUT_QUAD: "easeOutQuad",
+        EASE_IN_OUT_QUAD: "easeInOutQuad",
+        EASE_IN_CUBIC: "easeInCubic",
+        EASE_OUT_CUBIC: "easeOutCubic",
+        EASE_IN_OUT_CUBIC: "easeInOutCubic",
+        EASE_IN_QUART: "easeInQuart",
+        EASE_OUT_QUART: "easeOutQuart",
+        EASE_IN_OUT_QUART: "easeInOutQuart",
+        EASE_IN_BACK: "easeInBack",
+        EASE_OUT_BACK: "easeOutBack",
+        EASE_IN_OUT_BACK: "easeInOutBack",
+        BOUNCE: "bounce",
+        BOUNCE_OUT: "bounceOut",
+        BOUNCE_IN: "bounceIn",
+        BOUNCE_IN_OUT: "bounceInOut",
+        EASE_IN_SINE: "easeInSine",
+        EASE_OUT_SINE: "easeOutSine",
+        EASE_IN_OUT_SINE: "easeInOutSine",
+        EASE_IN_EXPO: "easeInExpo",
+        EASE_OUT_EXPO: "easeOutExpo",
+        EASE_IN_OUT_EXPO: "easeInOutExpo",
+        EASE_IN_CIRC: "easeInCirc",
+        EASE_OUT_CIRC: "easeOutCirc",
+        EASE_IN_OUT_CIRC: "easeInOutCirc",
+        EASE_IN_QUINT: "easeInQuint",
+        EASE_OUT_QUINT: "easeOutQuint",
+        EASE_IN_OUT_QUINT: "easeInOutQuint",
+        ELASTIC_IN: "elasticIn",
+        ELASTIC_OUT: "elasticOut",
+        ELASTIC_IN_OUT: "elasticInOut",
+        DECELERATE: "decelerate",
+        EASE: "ease",
+        EASE_IN: "easeIn",
+        EASE_OUT: "easeOut",
+        EASE_IN_OUT: "easeInOut",
+        FAST_OUT_SLOW_IN: "fastOutSlowIn",
+        SLOW_MIDDLE: "slowMiddle",
+        EASE_IN_TO_LINEAR: "easeInToLinear",
+        LINEAR_TO_EASE_OUT: "linearToEaseOut",
+        FAST_LINEAR_TO_SLOW_EASE_IN: "fastLinearToSlowEaseIn",
+        EASE_IN_OUT_CUBIC_EMPHASIZED: "easeInOutCubicEmphasized"
+    }
+    static PRIORITY := {
+        IDLE: "Idle",
+        BELOW_NORMAL: "BelowNormal",
+        NORMAL: "Normal",
+        ABOVE_NORMAL: "AboveNormal",
+        HIGH: "High",
+        REALTIME: "Realtime"
+    }
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
             "width", "borderRadius", "iconSize", "paddingX", "paddingY", "repoDuration",
@@ -228,43 +309,30 @@ class Toastify {
                 Toastify.config.%key% := cfg.%key%
         }
     }
-
     static RegisterTheme(name, palette) {
         ToastTheme.Register(name, palette)
     }
 
     static Start(theme := "dark", position := "top-right") {
         if !Toastify.pToken {
-
-
-            try DllCall("user32\SetProcessDpiAwarenessContext", "ptr", -4, "ptr")
-            try DllCall("Shcore\SetProcessDpiAwareness", "int", 2, "ptr", 0)
-
+            ToastDPI.Init()                         ; Per-Monitor v2 awareness
             pt := Gdip_Startup()
             if !pt {
                 MsgBox("GDI+ startup failed")
                 return
             }
             Toastify.pToken := pt
+            ToastTheme.InitThemes()
             OnExit((*) => Toastify.Shutdown())
-            OnMessage(0x201, (wParam, lParam, msg, hwnd) => Toastify.__Click(wParam, lParam, msg, hwnd))
-
-
+            OnMessage(0x201, (wParam, lParam, msg, hwnd) =>
+                Toastify.__Click(wParam, lParam, msg, hwnd))
             DllCall("Winmm.dll\timeBeginPeriod", "UInt", 2)
-
-
-            ProcessSetPriority("High")
-
-
+            ProcessSetPriority(Toastify.PRIORITY.HIGH)
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
             Toastify.__lastTickTime := A_TickCount
             SetTimer(Toastify.__globalTimer, -16)
-
-
             Toastify.__watchdogTimer := ObjBindMethod(Toastify, "__watchdogTick")
             SetTimer(Toastify.__watchdogTimer, 100)
-
-
             Toastify.__mouseTimer := ObjBindMethod(Toastify, "__mouseTimerTick")
             SetTimer(Toastify.__mouseTimer, 50)
         }
@@ -272,6 +340,25 @@ class Toastify {
         Toastify.position := position
     }
 
+    static dpiScale := 1.0
+
+    static __getDpiScale() {
+        try {
+            dpi := DllCall("GetDpiForSystem", "uint")
+            return Round(dpi / 96.0, 2)
+        } catch {
+            hdc := DllCall("GetDC", "ptr", 0, "ptr")
+            dpi := DllCall("gdi32\GetDeviceCaps", "ptr", hdc, "int", 88)
+            DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+            return Round(dpi / 96.0, 2)
+        }
+    }
+    static __applyDpiScale() {
+        s := Toastify.dpiScale
+        Toastify.marginX := Round(16 * s)
+        Toastify.marginY := Round(16 * s)
+        Toastify.spacing := Round(12 * s)
+    }
     static Shutdown(*) {
         if Toastify.__globalTimer
             SetTimer(Toastify.__globalTimer, 0)
@@ -279,31 +366,18 @@ class Toastify {
             SetTimer(Toastify.__watchdogTimer, 0)
         if Toastify.__mouseTimer
             SetTimer(Toastify.__mouseTimer, 0)
-
-
         ToastMouseHook.Stop()
-
-        for t in Toastify.toasts {
+        for t in Toastify.toasts
             t.Destroy()
-        }
-        for t in Toastify.exitingToasts {
+        for t in Toastify.exitingToasts
             t.Destroy()
-        }
-
-
-        for hwnd, data in Toastify.registry {
+        for hwnd, data in Toastify.registry
             try DllCall("DestroyWindow", "ptr", hwnd)
-        }
         Toastify.registry.Clear()
         Toastify.toasts := []
         Toastify.exitingToasts := []
-
-
         DllCall("Winmm.dll\timeEndPeriod", "UInt", 2)
-
-
-        ProcessSetPriority("Normal")
-
+        ProcessSetPriority(Toastify.PRIORITY.NORMAL)
         if Toastify.pToken {
             ToastTheme.Shutdown()
             Gdip_Shutdown(Toastify.pToken)
@@ -311,56 +385,39 @@ class Toastify {
         }
     }
 
-
     static __watchdogTick(*) {
-        Critical()
         now := A_TickCount
-        for hwnd, data in Toastify.registry.Clone() {
-
+        toRemove := []
+        for hwnd, data in Toastify.registry {
             if (!DllCall("IsWindow", "ptr", hwnd)) {
-                Toastify.registry.Delete(hwnd)
+                toRemove.Push(hwnd)
                 continue
             }
-
-
             t := (data.HasOwnProp("instance") && data.instance) ? data.instance : 0
-
-
-            if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled) {
+            if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled)
                 continue
-            }
-
-
             if (data.duration > 0 && t) {
-
                 expectedLifetime := t.animDuration + data.duration + 500
                 actualLifetime := now - data.startTime
-
                 if (actualLifetime > expectedLifetime) {
-                    if (t.HasProp("animState") && t.animState == "out") {
-
-
+                    if (t.animState == "out")
                         if (actualLifetime > expectedLifetime + t.animDuration + 500) {
-                            try DllCall("DestroyWindow", "ptr", hwnd)
-                            if (Toastify.registry.Has(hwnd))
-                                Toastify.registry.Delete(hwnd)
+                            t.Dismiss(true)
+                            toRemove.Push(hwnd)
                         }
-                    } else {
-
-                        t.StartExit()
-                    }
+                        else
+                            t.StartExit()
                 }
-            } else if (data.duration > 0 && !t) {
+            } else if (data.duration > 0 && !t)
+                if (now - data.startTime > data.duration + 1000)
+                    toRemove.Push(hwnd)
+        }
 
-                if (now - data.startTime > data.duration + 1000) {
-                    try DllCall("DestroyWindow", "ptr", hwnd)
-                    if (Toastify.registry.Has(hwnd))
-                        Toastify.registry.Delete(hwnd)
-                }
-            }
+        for hwnd in toRemove {
+            if (Toastify.registry.Has(hwnd))
+                Toastify.registry.Delete(hwnd)
         }
     }
-
 
     static Show(title := "", body := "", actions := [], opts := 0) {
         if !opts
@@ -408,138 +465,224 @@ class Toastify {
     }
 
     static ShowView(viewItems, opts := 0) {
-        t := Toastify.__createToast("", "", [], opts)
+        t := Toast("", "", [], opts)
         t.view := viewItems
-        t.Draw()
-        t.animState := "in"
-        t.animStartTime := A_TickCount
         Toastify.toasts.Push(t)
-        Toastify.__reflow(false)
+        Toastify.__reflow(true)
+        t.InitAnimation()
+        t.Draw()
         t.AnimateIn()
         return t
     }
 
     static DismissAll() {
-        for t in Toastify.toasts.Clone() {
+        for t in Toastify.toasts.Clone()
             t.StartExit()
-        }
     }
+
     static __createToast(title, body, actions, opts) {
         if !opts
             opts := {}
-
-
         if !opts.HasProp("theme")
             opts.theme := Toastify.theme
         if !opts.HasProp("position")
             opts.position := Toastify.position
 
+        ; calcular cuántos toasts visibles hay en la misma posición
+        pos := opts.position
+        wa := ToastDPI.WorkArea(0, 0)
+        dpi := ToastDPI.Primary()
+        marginY := ToastDPI.Px(16, dpi)
+        spacing := ToastDPI.Px(12, dpi)
 
-        if (Toastify.toasts.Length >= Toastify.maxToasts) {
-
-
-            if (Toastify.toasts.Length > 0) {
-                oldestToast := Toastify.toasts[1]
-                oldestToast.StartExit()
+        availableH := wa.h - marginY * 2
+        usedH := 0
+        toastsInPos := 0
+        for t in Toastify.toasts {
+            if (t.position = pos) {
+                usedH += t.height + spacing
+                toastsInPos++
             }
+        }
+        ; altura estimada del nuevo toast
+        estHeight := ToastDPI.Px(120, dpi)
+        if (usedH + estHeight > availableH && toastsInPos > 0) {
+            ; expulsar el más viejo de esa posición
+            for t in Toastify.toasts {
+                if (t.position = pos) {
+                    t.StartExit()
+                    break
+                }
+            }
+        }
+
+        ; hard cap global
+        if (Toastify.toasts.Length >= Toastify.maxToasts) {
+            Toastify.toasts[1].StartExit()
         }
 
         t := Toast(title, body, actions, opts)
         Toastify.toasts.Push(t)
         Toastify.__reflow(true)
-
-
         t.InitAnimation()
-        t.Draw()
+        for existing in Toastify.toasts
+            if (existing != t && existing.animState == "visible" && !existing.progressPaused) {
+                existing._pausedForNewToast := true
+                existing.progressPaused := true
+                existing.progressPauseTime := A_TickCount
+            }
         t.AnimateIn()
-
+        t.Draw()
+        Toastify._reflowNeeded := true
         return t
     }
 
     static __reflow(animate := true) {
-        total := Toastify.toasts.Length
-        if (total = 0)
+        if (Toastify.toasts.Length = 0)
             return
 
-        isTop := (Toastify.position = "top-right" || Toastify.position = "top-left")
+        groups := Map()
+        for t in Toastify.toasts {
+            pos := t.position
+            if !groups.Has(pos)
+                groups[pos] := []
+            groups[pos].Push(t)
+        }
+
         now := A_TickCount
 
-        for idx, t in Toastify.toasts {
-            x := 0, y := 0
-            if (Toastify.position = "top-right") {
-                x := A_ScreenWidth - Toastify.marginX - t.width
-                y := Toastify.marginY + (idx - 1) * (t.height + Toastify.spacing)
-            } else if (Toastify.position = "bottom-right") {
-                x := A_ScreenWidth - Toastify.marginX - t.width
-                y := A_ScreenHeight - Toastify.marginY - (t.height) - (total - idx) * (t.height + Toastify.spacing)
-            } else if (Toastify.position = "top-left") {
-                x := Toastify.marginX
-                y := Toastify.marginY + (idx - 1) * (t.height + Toastify.spacing)
-            } else {
-                x := Toastify.marginX
-                y := A_ScreenHeight - Toastify.marginY - (t.height) - (total - idx) * (t.height + Toastify.spacing)
+        for pos, group in groups {
+            refT := group[1]
+            refX := refT.currentX > 0 ? refT.currentX : 0
+            refY := refT.currentY > 0 ? refT.currentY : 0
+            wa := ToastDPI.WorkArea(refX, refY)
+            dpi := ToastDPI.ForPoint(refX, refY)
+
+            marginX := ToastDPI.Px(16, dpi)
+            marginY := ToastDPI.Px(16, dpi)
+            spacing := ToastDPI.Px(12, dpi)
+
+            isBottom := InStr(pos, "bottom") || pos = "bottom"
+            isMidV := (pos = "left" || pos = "right" || pos = "center")
+            total := group.Length
+
+            waSCX := wa.x + wa.w // 2
+            waSCY := wa.y + wa.h // 2
+
+            _getX(t) {
+                if (InStr(pos, "right") || pos = "right")
+                    return wa.x + wa.w - marginX - t.width
+                if (InStr(pos, "left") || pos = "left")
+                    return wa.x + marginX
+                return waSCX - t.width // 2
             }
 
+            ; ── calcular cuánto espacio disponible hay ──────────────
+            availableH := wa.h - marginY * 2
 
-            for et in Toastify.exitingToasts {
-                exitFraction := 1.0 - Min(1.0, (now - et.animStartTime) / Max(1, et.animDuration))
-                if (exitFraction > 0) {
-                    if (isTop && t.currentY > et.targetY + 1) {
+            ; ── calcular targets y detectar overflow ────────────────
+            targets := []
 
-                        y += (et.height + Toastify.spacing) * exitFraction
-                    } else if (!isTop && t.currentY < et.targetY - 1) {
+            if (!isBottom && !isMidV) {
+                cursor := wa.y + marginY
+                for t in group {
+                    if (cursor + t.height > wa.y + wa.h - marginY)
+                        break   ; simplemente no asignar posición a los que no caben
+                    targets.Push({ x: _getX(t), y: cursor })
+                    cursor += t.height + spacing
+                }
+            } else if (isBottom) {
+                cursor := wa.y + wa.h - marginY
+                loop total {
+                    idx := total + 1 - A_Index
+                    t := group[idx]
+                    cursor -= t.height
+                    if (cursor < wa.y + marginY) {
+                        cursor += t.height  ; revertir
+                        break
+                    }
+                    targets.Push({ x: _getX(t), y: cursor })
+                    cursor -= spacing
+                }
+                reversed := []
+                loop targets.Length
+                    reversed.Push(targets[targets.Length + 1 - A_Index])
+                targets := reversed
+            } else {
+                totalH := 0
+                for t in group
+                    totalH += t.height + spacing
+                totalH -= spacing
+                cursor := waSCY - totalH // 2
+                for t in group {
+                    targets.Push({ x: _getX(t), y: cursor })
+                    cursor += t.height + spacing
+                }
+            }
 
-                        y -= (et.height + Toastify.spacing) * exitFraction
+            for idx, t in group {
+                if (idx > targets.Length)
+                    break
+                x := targets[idx].x
+                y := targets[idx].y
+                t.targetX := x
+                t.targetY := y
+
+                if (!t._initialized) {
+                    t.currentX := x
+                    t.currentY := y
+                } else if (t.animState == "in") {
+                    entrance := t.resolvedEntrance
+                    if (entrance = "right" || entrance = "left")
+                        t.animStartY := y
+                    else
+                        t.animStartX := x
+                } else if (t.animState == "visible") {
+                    if (animate) {
+                        if (Abs(t.repoTargetX - x) > 0.5 || Abs(t.repoTargetY - y) > 0.5) {
+                            t.repoStartX := t.currentX
+                            t.repoStartY := t.currentY
+                            t.repoTargetX := x
+                            t.repoTargetY := y
+                            t.repoStartTime := now
+                            t.repoActive := true
+                        }
+                    } else {
+                        t.repoActive := false
+                        t.currentX := x
+                        t.currentY := y
+                        if (t.hwnd && DllCall("IsWindow", "ptr", t.hwnd))
+                            t.UpdateWindow(x, y)
                     }
                 }
             }
-
-            t.targetX := x
-            t.targetY := y
-
-            if (animate) {
-
-                t.repoStartX := t.currentX
-                t.repoStartY := t.currentY
-                t.repoTargetX := x
-                t.repoTargetY := y
-                t.repoStartTime := now
-                t.repoActive := true
-            } else {
-                t.currentX := x
-                t.currentY := y
-                if (t.hwnd)
-                    t.UpdateWindow(x, y)
-            }
         }
     }
-
     static __globalTick(*) {
-        Critical()
-
         now := A_TickCount
         elapsed := now - Toastify.__lastTickTime
         Toastify.__lastTickTime := now
-
         SetTimer(Toastify.__globalTimer, -Max(1, 16 - elapsed))
 
-
+        ; lógica de expiración (liviana)
         while (Toastify.toasts.Length > Toastify.maxToasts) {
             if (Toastify.toasts.Length > 0) {
                 t := Toastify.toasts[1]
-                ; StartExit() already removes t from toasts and adds to exitingToasts.
-                ; Only force-remove here if it somehow wasn't moved (safety net).
                 t.StartExit()
                 if (Toastify.toasts.Length > 0 && Toastify.toasts[1] == t) {
                     Toastify.toasts.RemoveAt(1)
-                    if (!Toastify.exitingToasts.Contains(t))
+                    local found := false
+                    for exiting in Toastify.exitingToasts
+                        if (exiting == t) {
+                            found := true
+                            break
+                        }
+                    if (!found)
                         Toastify.exitingToasts.Push(t)
                 }
-            } else {
+            } else
                 break
-            }
         }
-
 
         toastsToExit := []
         for t in Toastify.toasts {
@@ -549,90 +692,73 @@ class Toastify {
             }
             t.Tick()
         }
-        for t in toastsToExit {
+        for t in toastsToExit
             t.StartExit()
-        }
-
 
         i := 1
         while (i <= Toastify.exitingToasts.Length) {
             t := Toastify.exitingToasts[i]
             t.Tick()
-
             if (t.animState == "out" && (A_TickCount - t.animStartTime > t.animDuration)) {
-                t.Dismiss()
-
-            } else {
+                t.Dismiss(true)
+                Toastify.__reflow(true)
+            } else
                 i++
-            }
+        }
+
+        if (Toastify._reflowNeeded) {
+            Toastify.__reflow(true)
+            Toastify._reflowNeeded := false
         }
     }
 
     static __checkHover(t, x, y) {
         if (!t.hwnd)
             return
-
         wasInside := t.hovered
         isInside := (x >= t.currentX && x <= t.currentX + t.width && y >= t.currentY && y <= t.currentY + t.height)
-
         if (isInside && !wasInside) {
             relX := x - t.currentX
             relY := y - t.currentY
             t.OnMouseMove(relX, relY)
-        } else if (!isInside && wasInside) {
+        } else if (!isInside && wasInside)
             t.OnMouseLeave()
-        } else if (isInside) {
+        else if (isInside) {
             relX := x - t.currentX
             relY := y - t.currentY
             t.OnMouseMove(relX, relY)
         }
     }
-
     static __mouseTimerTick(*) {
-        Critical()
-
         MouseGetPos(&x, &y)
-
-
-        for t in Toastify.toasts {
+        for t in Toastify.toasts
             Toastify.__checkHover(t, x, y)
-        }
-
-
-        for t in Toastify.exitingToasts {
+        for t in Toastify.exitingToasts
             Toastify.__checkHover(t, x, y)
-        }
     }
-
     static __mouseMoveHook(x, y, prevX, prevY) {
         for t in Toastify.toasts.Clone()
             Toastify.__checkHover(t, x, y)
         for t in Toastify.exitingToasts
             Toastify.__checkHover(t, x, y)
     }
-
     static __Click(wParam, lParam, msg, hwnd) {
-        for t in Toastify.toasts {
+        for t in Toastify.toasts
             if (t.hwnd == hwnd) {
                 x := lParam & 0xFFFF
                 y := (lParam >> 16) & 0xFFFF
                 t.OnClick(x, y)
                 return
             }
-        }
-        for t in Toastify.exitingToasts {
+        for t in Toastify.exitingToasts
             if (t.hwnd == hwnd) {
                 x := lParam & 0xFFFF
                 y := (lParam >> 16) & 0xFFFF
                 t.OnClick(x, y)
                 return
             }
-        }
     }
-
-
 }
-
 
 class ToastMouseHook {
     static mouseHook := 0
@@ -640,22 +766,18 @@ class ToastMouseHook {
     static lastX := 0
     static lastY := 0
     static callback := 0
-
     static Start(callback) {
         ToastMouseHook.callback := callback
-        if (!ToastMouseHook.mouseProc) {
+        if (!ToastMouseHook.mouseProc)
             ToastMouseHook.mouseProc := CallbackCreate((nCode, wParam, lParam) => ToastMouseHook.__MouseLLProc(nCode,
                 wParam, lParam), "int, UPtr, Ptr")
-        }
-        if (!ToastMouseHook.mouseHook) {
+        if (!ToastMouseHook.mouseHook)
             ToastMouseHook.mouseHook := DllCall("user32\SetWindowsHookEx", "int", 14, "ptr", ToastMouseHook.mouseProc,
                 "ptr", 0, "uint", 0, "ptr")
-        }
         MouseGetPos(&x, &y)
         ToastMouseHook.lastX := x
         ToastMouseHook.lastY := y
     }
-
     static Stop() {
         if (ToastMouseHook.mouseHook) {
             DllCall("user32\UnhookWindowsHookEx", "ptr", ToastMouseHook.mouseHook)
@@ -667,7 +789,6 @@ class ToastMouseHook {
         }
         ToastMouseHook.callback := 0
     }
-
     static __MouseLLProc(nCode, wParam, lParam) {
         if (nCode >= 0 && wParam == 0x0200) {
             x := NumGet(lParam, 0, "int")
@@ -676,7 +797,6 @@ class ToastMouseHook {
             prevY := ToastMouseHook.lastY
             ToastMouseHook.lastX := x
             ToastMouseHook.lastY := y
-
             if (ToastMouseHook.callback)
                 try ToastMouseHook.callback(x, y, prevX, prevY)
         }
@@ -686,9 +806,9 @@ class ToastMouseHook {
 
 class ToastTheme {
     static themes := Map()
-
-    static __New() {
-        ; ── SEMÁNTICOS ──────────────────────────────────────────────
+    static InitThemes() {
+        if (ToastTheme.themes.Count > 0)
+            return
         ToastTheme.Register("error", {
             bg1: 0xEE2D1517, bg2: 0xEE1A0D10,
             fg: 0xFFFCA5A5, accent: 0xFFEF4444,
@@ -729,8 +849,6 @@ class ToastTheme {
             fg: 0xFF1E40AF, accent: 0xFF2563EB,
             shadow: 0x222563EB, progress: 0xFF3B82F6
         })
-
-        ; ── BASE ────────────────────────────────────────────────────
         ToastTheme.Register("dark", {
             bg1: 0xEE1F2937, bg2: 0xEE111827,
             fg: 0xFFF9FAFB, accent: 0xFF60A5FA,
@@ -741,8 +859,6 @@ class ToastTheme {
             fg: 0xFF1F2937, accent: 0xFF3B82F6,
             shadow: 0x33000000, progress: 0xFF3B82F6
         })
-
-        ; ── ESPECIALES ──────────────────────────────────────────────
         ToastTheme.Register("midnight", {
             bg1: 0xEE0F172A, bg2: 0xEE1E293B,
             fg: 0xFFE2E8F0, accent: 0xFF38BDF8,
@@ -847,15 +963,18 @@ class ToastTheme {
 
     static Register(name, palette) {
         if !palette.HasOwnProp("border") {
+            accentRGB := palette.accent & 0xFFFFFF
+            palette.border := 0xCC000000 | accentRGB
+        }
+        if !palette.HasOwnProp("progressBg") {
             c := palette.bg1 & 0xFFFFFF
             lum := ((c >> 16) & 0xFF) * 0.299 + ((c >> 8) & 0xFF) * 0.587 + (c & 0xFF) * 0.114
-            palette.border := lum < 128 ? 0x44FFFFFF : 0x22000000
+            palette.progressBg := lum < 128 ? 0x55FFFFFF : 0x33000000
         }
-        if !palette.HasOwnProp("progressBg")
-            palette.progressBg := palette.border
-
+        if !palette.HasOwnProp("borderWidth")
+            palette.borderWidth := 1.5
         palette.shadowBrush := Gdip_BrushCreateSolid(palette.shadow)
-        palette.borderPen := Gdip_CreatePen(palette.border, 3)
+        palette.borderPen := Gdip_CreatePen(palette.border, palette.borderWidth)
         palette.accentBrush := Gdip_BrushCreateSolid(palette.accent)
         palette.btnBorderPen := Gdip_CreatePen(0x44FFFFFF, 1)
         palette.btnFillBrush := Gdip_BrushCreateSolid(0x33000000)
@@ -874,7 +993,6 @@ class ToastTheme {
     }
 
     static Shutdown() {
-
         for name, pal in ToastTheme.themes {
             try Gdip_DeleteBrush(pal.shadowBrush)
             try Gdip_DeletePen(pal.borderPen)
@@ -896,29 +1014,21 @@ class ToastConfig {
     fontSizeBody := 13
     fontWeightTitle := "Bold"
     fontWeightBody := "Normal"
-
     width := 340
     minHeight := 120
     paddingX := 16
     paddingY := 14
     iconSize := 32
     borderRadius := 18
-
-
+    borderWidth := 0
     animDuration := 300
     animEasing := "easeOutCubic"
     animStyle := "slide"
     animEntrance := "auto"
-
     repoDuration := 300
-
-
     renderQuality := "High"
-
 }
 
-
-ToastTheme.__New()
 
 class Toast {
     title := ""
@@ -938,26 +1048,22 @@ class Toast {
     hdc := 0
     obm := 0
     G := 0
-
-    ; Static key lists at class level (can't use static inside if-blocks in AHKv2)
+    exitTargetX := 0
+    exitTargetY := 0
+    exitStartX := 0
+    exitStartY := 0
     static _cfgKeys := ["width", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "animDuration", "animEasing",
+        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "animEasing",
         "animStyle", "animEntrance", "renderQuality", "repoDuration"]
     static _styleKeys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "animDuration", "renderQuality"]
-
-
+        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "renderQuality"]
     pBitmapCache := 0
     GCache := 0
     cacheDirty := true
-
-
     targetX := 0
     targetY := 0
     currentX := 0
     currentY := 0
-
-
     repoStartX := 0
     repoStartY := 0
     repoTargetX := 0
@@ -965,57 +1071,39 @@ class Toast {
     repoStartTime := 0
     repoDuration := 250
     repoActive := false
-
-
     animState := "idle"
     animStartTime := 0
     animDuration := 300
     animEasing := "easeOutCubic"
     animStyle := ["fade"]
     animEntrance := "auto"
-
-
     opacity := 1.0
     scale := 1.0
     rotation := 0.0
     resolvedEntrance := "right"
-
-
     _hasSlide := false
     _hasFade := false
     _hasZoom := false
     _hasRotate := false
-
-
+    _baseCfg := 0
+    dpiFactor := 1.0
     bufferWidth := 0
     bufferHeight := 0
-
-
     progress := 0.0
     progressStartTime := 0
     progressPaused := false
     progressPauseTime := 0
     lastProgress := 0.0
-
-
     creationTime := 0
-
-
     clickRegions := []
     hovered := false
     closeHovered := false
     onClickCallback := 0
     onCloseCallback := 0
     userInitiatedExit := false
-
-
     autoDismiss := true
-
-
     progressCompleteTime := 0
     static progressGracePeriod := 300
-
-
     fontName := "Segoe UI"
     fontSizeTitle := 16
     fontSizeBody := 11
@@ -1025,22 +1113,21 @@ class Toast {
     paddingY := 14
     iconSize := 32
     borderRadius := 18
+    borderWidth := 0
     renderQuality := "High"
-
-
     _windowShown := false
+    _initialized := false
 
     __New(title, body, actions, opts) {
+        dpi := 1.0
+
         this.title := title
         this.body := body
         this.actions := actions
-
         cfg := Toastify.config
-        for key in Toast._cfgKeys {
+        for key in Toast._cfgKeys
             if cfg.HasProp(key)
                 this.%key% := cfg.%key%
-        }
-
         if IsObject(opts) {
             try {
                 if opts.HasProp("width")
@@ -1062,53 +1149,41 @@ class Toast {
                 if opts.HasProp("onClose")
                     this.onCloseCallback := opts.onClose
             }
-
-            for key in Toast._styleKeys {
-                try {
+            for key in Toast._styleKeys
+                try
                     if opts.HasProp(key)
                         this.%key% := opts.%key%
-                }
-            }
-
             this.progressPaused := false
-
             try {
                 if opts.HasProp("animStyle")
                     this.animStyle := opts.animStyle
                 else
                     this.animStyle := Toastify.config.animStyle
             }
-
-            if Type(this.animStyle) == "String" {
+            if Type(this.animStyle) == "String"
                 this.animStyle := [this.animStyle]
-            } else if !HasProp(this.animStyle, "Length") {
+            else if !HasProp(this.animStyle, "Length")
                 this.animStyle := ["fade"]
-            }
-
             try {
                 if opts.HasProp("animEasing")
                     this.animEasing := opts.animEasing
                 else
                     this.animEasing := Toastify.config.animEasing
             }
-
             try {
                 if opts.HasProp("animEntrance")
                     this.animEntrance := opts.animEntrance
                 else
                     this.animEntrance := Toastify.config.animEntrance
             }
-
             try {
                 if opts.HasProp("autoDismiss")
                     this.autoDismiss := !!opts.autoDismiss
             }
-
             isPermanent := false
-            try {
+            try
                 if opts.HasProp("permanent")
                     isPermanent := !!opts.permanent
-            }
             if (isPermanent) {
                 this.autoDismiss := false
                 if !opts.HasProp("duration")
@@ -1117,32 +1192,78 @@ class Toast {
                     this.showProgress := false
             }
         }
-
         this.creationTime := A_TickCount
+        this._saveBaseCfg()
         this.__createWindow()
     }
 
+    __initThemeCache(pal) {
+        this._bgBrush := 0      ; se crea en drawCache con el gradiente actual
+        this._closePen := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpi)
+        this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpi)
+        this._btnRoundR := 6 * this.dpi
+    }
+    _applyDpi() {
+        ; AHK64 tiene manifest propio - SetProcessDpiAwarenessContext falla.
+        ; Windows ya maneja el scaling automáticamente para este proceso.
+        ; Nosotros NO debemos escalar: siempre factor 1.0, dpi=96.
+        this.dpi := 96
+        this.dpiFactor := 1.0
+
+        p := (pts) => pts   ; sin escala
+
+        this.width := this._baseCfg.width
+        this.height := this._baseCfg.minHeight
+        this.fontSizeTitle := this._baseCfg.fontSizeTitle
+        this.fontSizeBody := this._baseCfg.fontSizeBody
+        this.paddingX := this._baseCfg.paddingX
+        this.paddingY := this._baseCfg.paddingY
+        this.iconSize := this._baseCfg.iconSize
+        this.borderRadius := this._baseCfg.borderRadius
+        this.borderWidth := this._baseCfg.borderWidth
+        this.repoDuration := this._baseCfg.repoDuration
+    }
+    _saveBaseCfg() {
+        ; Guarda una copia de los valores de diseño a 96 DPI
+        ; (tal como llegaron de ToastConfig/opts) sin escalar.
+        this._baseCfg := {
+            width: this.width,
+            minHeight: Toastify.config.minHeight,
+            fontSizeTitle: this.fontSizeTitle,
+            fontSizeBody: this.fontSizeBody,
+            paddingX: this.paddingX,
+            paddingY: this.paddingY,
+            iconSize: this.iconSize,
+            borderRadius: this.borderRadius,
+            borderWidth: this.borderWidth,
+            repoDuration: this.repoDuration
+        }
+    }
     __createWindow() {
         this.gui := Gui("-Caption +E0x80000 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs")
         this.hwnd := this.gui.Hwnd
         this._windowShown := false
 
+        ; ── DPI real del monitor donde va a aparecer ──────────────
+        ; En este momento targetX/Y ya están asignados por __reflow.
+        ; Si todavía son 0 usamos el punto 0,0 (monitor primario).
+        this._applyDpi()
 
-        this.hbm := CreateDIBSection(this.width, this.height)
+        ; buffers en px físicos ya escalados
+        this.bufferWidth := this.width
+        this.bufferHeight := this.height
+
+        this.hbm := CreateDIBSection(this.bufferWidth, this.bufferHeight)
         this.hdc := CreateCompatibleDC()
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         Gdip_SetSmoothingMode(this.G, 4)
 
-        this.bufferWidth := this.width
-        this.bufferHeight := this.height
-
-
         this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
         this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
 
+        this.__applyRenderQuality(this.G, false)
         this.__applyRenderQuality(this.GCache, true)
-
 
         Toastify.registry[this.hwnd] := {
             startTime: A_TickCount,
@@ -1150,9 +1271,78 @@ class Toast {
             instance: this
         }
     }
+    Draw() {
+        if (!this._initialized)
+            return
+        if (this.cacheDirty) {
+            this.__drawCache()
+            this.cacheDirty := false
+        }
+        this.RenderToWindow()
+    }
+    __drawCache() {
+        pal := ToastTheme.palette(this.theme)
+        d := this.dpiFactor
+        this.clickRegions := []
+        Gdip_GraphicsClear(this.GCache)
+        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width, this.height, this.borderRadius)
+        pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
+        Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
+        Gdip_DeleteBrush(pBrush)
+        if (this.borderWidth > 0) {
+            customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
+            Gdip_DrawRoundedRectangle(this.GCache, customBorderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
+            Gdip_DeletePen(customBorderPen)
+        } else
+            Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
 
-    ; Applies GDI+ render quality settings to a Graphics context.
-    ; isCache=true uses text rendering hint (for off-screen cache), false skips it.
+        iconX := this.paddingX
+        iconY := this.paddingY
+        iconSize := this.iconSize
+        textStartX := this.paddingX
+        if (this.icon != "") {
+            this.DrawIcon(iconX, iconY, iconSize, this.icon, pal)
+            textStartX := iconX + iconSize + 12 * d
+        }
+        if (this.showClose)
+            this.DrawCloseButton(pal)
+
+        font := this.fontName
+        titleWidth := this.width - textStartX - (this.showClose ? 40 * d : this.paddingX)
+        if (this.title != "") {
+            titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this.fontWeightTitle
+            Gdip_TextToGraphics(this.GCache, this.title, titleOpts, font, this.width, this.height)
+        }
+        if (this.body != "") {
+            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4 * d) : this.paddingY
+            availableHeight := this.height - bodyY - this.paddingY
+            if (this.actions.Length > 0)
+                availableHeight -= 38 * d
+            if (this.showProgress && this.duration > 0)
+                availableHeight -= 12 * d
+            bodyHeight := Max(20 * d, availableHeight)
+            bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeBody " " this.fontWeightBody
+            Gdip_TextToGraphics(this.GCache, this.body, bodyOpts, font, this.width, this.height)
+        }
+        if (this.actions.Length) {
+            btnW := Round((this.width - 32 * d - (this.actions.Length - 1) * 8 * d) / this.actions.Length)
+            y := this.height - (this.showProgress ? 50 * d : 40 * d)
+            x := 16 * d
+            for idx, act in this.actions {
+                rectX := x, rectY := y, rectW := btnW, rectH := 28 * d
+
+                Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
+                Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
+                txtOpts := "x" (rectX + 10 * d) " y" (rectY + 6 * d) " w" (rectW - 20 * d) " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
+                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
+                this.clickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
+                x += btnW + 8 * d
+            }
+        }
+        if (this.showProgress && this.duration > 0)
+            this.DrawProgressBar(pal)
+    }
+
     __applyRenderQuality(G, isCache := false) {
         if (this.renderQuality = "Low") {
             Gdip_SetSmoothingMode(G, 1)
@@ -1180,252 +1370,75 @@ class Toast {
                 Gdip_SetInterpolationMode(G, 7)
         }
     }
-
-    Draw() {
-        if (!this.cacheDirty && this.scale == 1.0 && this.rotation == 0) {
-
-            this.RenderToWindow()
-            return
-        }
-
-        pal := ToastTheme.palette(this.theme)
-        this.clickRegions := []
-
-
-        Gdip_GraphicsClear(this.GCache)
-
-
-        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4, 4, this.width, this.height, this.borderRadius)
-
-
-        pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
-        Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
-        Gdip_DeleteBrush(pBrush)
-
-
-        Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 1, 1, this.width - 2, this.height - 2, this.borderRadius)
-
-
-        iconX := this.paddingX
-        iconY := this.paddingY
-        iconSize := this.iconSize
-        textStartX := this.paddingX
-
-        if (this.icon != "") {
-            this.DrawIcon(iconX, iconY, iconSize, this.icon, pal)
-            textStartX := iconX + iconSize + 12
-        }
-
-
-        if (this.showClose) {
-            this.DrawCloseButton(pal)
-        }
-
-
-        font := this.fontName
-        titleWidth := this.width - textStartX - (this.showClose ? 40 : this.paddingX)
-
-        if (this.title != "") {
-            titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this
-                .fontWeightTitle
-            Gdip_TextToGraphics(this.GCache, this.title, titleOpts, font, this.width, this.height)
-        }
-
-        if (this.body != "") {
-            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4) : this.paddingY
-
-
-            availableHeight := this.height - bodyY - this.paddingY
-
-
-            if (this.actions.Length > 0)
-                availableHeight -= 38
-            if (this.showProgress && this.duration > 0)
-                availableHeight -= 12
-
-
-            bodyHeight := Max(20, availableHeight)
-
-            bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this
-                .fontSizeBody " " this.fontWeightBody
-            Gdip_TextToGraphics(this.GCache, this.body, bodyOpts, font, this.width, this.height)
-        }
-
-
-        if (this.actions.Length) {
-            btnW := (this.width - 32 - (this.actions.Length - 1) * 8) // this.actions.Length
-            y := this.height - (this.showProgress ? 50 : 40)
-            x := 16
-            for idx, act in this.actions {
-                rectX := x
-                rectY := y
-                rectW := btnW
-                rectH := 28
-
-
-                Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6)
-
-
-                Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6)
-
-
-                txtOpts := "x" rectX + 10 " y" rectY + 6 " w" rectW - 20 " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
-                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width,
-                    this.height
-                )
-
-                this.clickRegions.Push({
-                    x: rectX, y: rectY, w: rectW, h: rectH,
-                    cb: (act.HasProp("onClick") ? act.onClick : act[2]),
-                    type: "button"
-                })
-                x += btnW + 8
-            }
-        }
-
-
-        if (this.showProgress && this.duration > 0) {
-            this.DrawProgressBar(pal)
-        }
-
-        this.cacheDirty := false
-        this.RenderToWindow()
-    }
-
+    _lastRenderX := 0
+    _lastRenderY := 0
+    _lastAlpha := -1
     RenderToWindow() {
-        Gdip_GraphicsClear(this.G, 0x00000000)
+        _compositeDirty := false    ; local, indica si G fue modificado este frame
 
-        this.__applyRenderQuality(this.G, false)
-
+        drawX := (this.bufferWidth - this.width) / 2
+        drawY := (this.bufferHeight - this.height) / 2
         if (this.scale != 1.0 || this.rotation != 0) {
-
-
             if (this.scale < 0.01) {
-                UpdateLayeredWindow(this.hwnd, this.hdc, this.currentX, this.currentY, this.bufferWidth, this.bufferHeight,
-                    0)
+                this.UpdateWindow(this.currentX, this.currentY, 0)
                 return
             }
-
-
-            scaledW := this.width * this.scale
-            scaledH := this.height * this.scale
-            x := (this.width - scaledW) / 2
-            y := (this.height - scaledH) / 2
-
-
-            matrix := Gdip_CreateMatrix()
-            cx := this.width / 2
-            cy := this.height / 2
-
-
-            drawX := (this.bufferWidth - this.width) / 2
-            drawY := (this.bufferHeight - this.height) / 2
-
-
+            Gdip_GraphicsClear(this.G, 0x00000000)
+            this.__applyRenderQuality(this.G, false)
             Gdip_ResetWorldTransform(this.G)
-
             bufCX := this.bufferWidth / 2
             bufCY := this.bufferHeight / 2
-
             Gdip_TranslateWorldTransform(this.G, bufCX, bufCY, 0)
             if (this.rotation != 0)
                 Gdip_RotateWorldTransform(this.G, this.rotation, 0)
             if (this.scale != 1.0)
                 Gdip_ScaleWorldTransform(this.G, this.scale, this.scale, 0)
             Gdip_TranslateWorldTransform(this.G, -bufCX, -bufCY, 0)
-
-
-            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height
-            )
-
+            Gdip_SetClipRect(this.G, drawX, drawY, this.width, this.height, 0)
+            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
+            Gdip_ResetClip(this.G)
             Gdip_ResetWorldTransform(this.G)
-            Gdip_DeleteMatrix(matrix)
-
-
-            winX := this.currentX - (this.bufferWidth - this.width) / 2
-            winY := this.currentY - (this.bufferHeight - this.height) / 2
-
-            UpdateLayeredWindow(this.hwnd, this.hdc, winX, winY, this.bufferWidth, this.bufferHeight, Floor(this.opacity *
-                255))
-
+            _compositeDirty := true
         } else {
+            Gdip_GraphicsClear(this.G, 0x00000000)
+            this.__applyRenderQuality(this.G, false)
+            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
+            _compositeDirty := true
+        }
 
-            drawX := (this.bufferWidth - this.width) / 2
-            drawY := (this.bufferHeight - this.height) / 2
+        alpha := Floor(this.opacity * 255)
+        x := this.currentX
+        y := this.currentY
 
-            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height
-            )
-
-            winX := this.currentX - drawX
-            winY := this.currentY - drawY
-            UpdateLayeredWindow(this.hwnd, this.hdc, winX, winY, this.bufferWidth, this.bufferHeight, Floor(this.opacity *
-                255))
+        if (_compositeDirty || alpha != this._lastAlpha || x != this._lastRenderX || y != this._lastRenderY) {
+            this.UpdateWindow(x, y, alpha)
+            this._lastRenderX := x
+            this._lastRenderY := y
+            this._lastAlpha := alpha
         }
     }
 
-    ResizeBuffer(w, h) {
-        if (w <= this.bufferWidth && h <= this.bufferHeight)
+    UpdateWindow(x, y, alpha := 255) {
+        if (!this.hwnd)
             return
-
-        SelectObject(this.hdc, this.obm)
-        DeleteObject(this.hbm)
-        Gdip_DeleteGraphics(this.G)
-
-        this.bufferWidth := w
-        this.bufferHeight := h
-
-        this.hbm := CreateDIBSection(w, h)
-        this.obm := SelectObject(this.hdc, this.hbm)
-        this.G := Gdip_GraphicsFromHDC(this.hdc)
-        Gdip_SetSmoothingMode(this.G, 4)
-    }
-
-    ShrinkBuffer() {
-
-        if (this.animState == "in" || this.animState == "out")
+        if (!DllCall("IsWindow", "ptr", this.hwnd))
             return
-
-        if (this.bufferWidth <= this.width && this.bufferHeight <= this.height)
+        if (!IsObject(this.gui))
             return
-
-        SelectObject(this.hdc, this.obm)
-        DeleteObject(this.hbm)
-        Gdip_DeleteGraphics(this.G)
-
-        this.bufferWidth := this.width
-        this.bufferHeight := this.height
-
-        this.hbm := CreateDIBSection(this.width, this.height)
-        this.obm := SelectObject(this.hdc, this.hbm)
-        this.G := Gdip_GraphicsFromHDC(this.hdc)
-        Gdip_SetSmoothingMode(this.G, 4)
-    }
-
-    UpdateWindow(x := "", y := "", alpha := 255) {
-        if (x != "")
-            this.currentX := x
-        if (y != "")
-            this.currentY := y
-
-
-        w := (this.bufferWidth > this.width) ? this.bufferWidth : this.width
-        h := (this.bufferHeight > this.height) ? this.bufferHeight : this.height
-
-
-        winX := this.currentX - (w - this.width) / 2
-        winY := this.currentY - (h - this.height) / 2
-
-
+        w := this.bufferWidth
+        h := this.bufferHeight
         if (!this._windowShown) {
             this._windowShown := true
-            this.gui.Show("NA")
+            try
+                this.gui.Show("NA")
+            catch {
+                this._windowShown := false
+                return
+            }
         }
-
-        UpdateLayeredWindow(this.hwnd, this.hdc, winX, winY, w, h, alpha)
+        UpdateLayeredWindow(this.hwnd, this.hdc, x, y, w, h, alpha)
     }
-
     DrawIcon(x, y, size, iconType, pal) {
-        ; Use cached GDI+ objects from the theme palette - no per-frame alloc
         switch iconType {
             case "success":
                 Gdip_FillEllipse(this.GCache, pal.accentBrush, x, y, size, size)
@@ -1447,72 +1460,56 @@ class Toast {
                 Gdip_DrawLine(this.GCache, pal.iconWhitePen2, x + size / 2, y + size / 2.5, x + size / 2, y + size * 3 / 4)
         }
     }
-
     DrawCloseButton(pal) {
-        closeSize := 20
+        d := this.dpiFactor
+        closeSize := 20 * d
         closeX := this.width - this.paddingX - closeSize
-        closeY := this.paddingY - 4
-
+        closeY := this.paddingY - 4 * d
         this.clickRegions.Push({
             x: closeX, y: closeY, w: closeSize, h: closeSize,
             cb: (*) => this.ForceClose(),
             type: "close"
         })
-
         if (this.closeHovered) {
             pBrushHover := Gdip_BrushCreateSolid(0x33FFFFFF)
-            Gdip_FillEllipse(this.GCache, pBrushHover, closeX - 2, closeY - 2, closeSize + 4, closeSize + 4)
+            Gdip_FillEllipse(this.GCache, pBrushHover, closeX - 2 * d, closeY - 2 * d, closeSize + 4 * d, closeSize + 4 * d)
             Gdip_DeleteBrush(pBrushHover)
         }
-
         color := this.closeHovered ? 0xFFFFFFFF : 0xAAFFFFFF
-        pPen := Gdip_CreatePen(color, 2)
-        offset := 6
-        Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY +
-            closeSize -
-            offset)
-        Gdip_DrawLine(this.GCache, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY +
-            closeSize -
-            offset)
+        pPen := Gdip_CreatePen(color, 2 * d)
+        offset := 6 * d
+        Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY + closeSize - offset)
+        Gdip_DrawLine(this.GCache, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY + closeSize - offset)
         Gdip_DeletePen(pPen)
     }
 
     DrawProgressBar(pal) {
-        barHeight := 4
-        barY := this.height - barHeight - 4
-        barX := 8
-        barWidth := this.width - 16
-
-
-        Gdip_FillRoundedRectangle(this.GCache, pal.progressBgBrush, barX, barY, barWidth, barHeight, 2)
-
+        d := this.dpiFactor
+        barHeight := 3 * d
+        barY := this.height - barHeight - 7 * d
+        barX := 14 * d
+        barWidth := this.width - 28 * d
+        Gdip_FillRoundedRectangle(this.GCache, pal.progressBgBrush, barX, barY, barWidth, barHeight, 2 * d)
         if (this.progress > 0) {
             fillWidth := barWidth * this.progress
-            Gdip_FillRoundedRectangle(this.GCache, pal.progressFillBrush, barX, barY, fillWidth, barHeight, 2)
+            Gdip_FillRoundedRectangle(this.GCache, pal.progressFillBrush, barX, barY, fillWidth, barHeight, 2 * d)
         }
     }
 
     HasAnim(name) {
-        for style in this.animStyle {
+        for style in this.animStyle
             if (style == name)
                 return true
-        }
         return false
     }
-
     InitAnimation() {
-
         this._hasSlide := this.HasAnim("slide")
         this._hasFade := this.HasAnim("fade")
         this._hasZoom := this.HasAnim("zoom")
         this._hasRotate := this.HasAnim("rotate")
-
-
         this.opacity := 1.0
         this.scale := 1.0
         this.rotation := 0.0
-
-
         entrance := this.animEntrance
         if (entrance == "auto") {
             if (this.position == "top-right" || this.position == "bottom-right")
@@ -1525,30 +1522,19 @@ class Toast {
                 entrance := "bottom"
         }
         this.resolvedEntrance := entrance
-
-        if (this._hasFade) {
+        if (this._hasFade)
             this.opacity := 0.0
-        }
-
-        if (this._hasZoom) {
+        if (this._hasZoom)
             this.scale := 0.0
-        }
-
-
         if (this._hasRotate) {
             this.rotation := -90.0
-
             diag := Sqrt(this.width ** 2 + this.height ** 2)
             this.ResizeBuffer(Ceil(diag), Ceil(diag))
         }
-
-
         startX := this.targetX
         startY := this.targetY
-
         if (this._hasSlide) {
             entrance := this.resolvedEntrance
-
             if (entrance == "right")
                 startX := A_ScreenWidth
             else if (entrance == "left")
@@ -1558,437 +1544,331 @@ class Toast {
             else if (entrance == "bottom")
                 startY := A_ScreenHeight
         } else {
-
             startX := this.targetX
             startY := this.targetY
         }
-
         this.currentX := startX
         this.currentY := startY
-
-
+        this._initialized := true
     }
-
     AnimateIn() {
+        this.resolvedEntrance := this.animEntrance
+        if (this.resolvedEntrance == "auto") {
+            pos := this.position
+            if (InStr(pos, "right") || pos == "right")
+                this.resolvedEntrance := "right"
+            else if (InStr(pos, "left") || pos == "left")
+                this.resolvedEntrance := "left"
+            else if (InStr(pos, "top") || pos == "top")
+                this.resolvedEntrance := "top"
+            else
+                this.resolvedEntrance := "right"
+        }
+
+        wa := ToastDPI.WorkArea(this.targetX, this.targetY)
+
+        switch this.resolvedEntrance {
+            case "right":
+                this.animStartX := wa.x + wa.w + 20
+                this.animStartY := this.targetY
+            case "left":
+                this.animStartX := wa.x - this.width - 20
+                this.animStartY := this.targetY
+            case "top":
+                this.animStartX := this.targetX
+                this.animStartY := wa.y - this.height - 20
+            case "bottom":
+                this.animStartX := this.targetX
+                this.animStartY := wa.y + wa.h + 20
+            default:
+                this.animStartX := wa.x + wa.w + 20
+                this.animStartY := this.targetY
+        }
+
+        this.currentX := this.animStartX
+        this.currentY := this.animStartY
+        this._hasSlide := false
+        this._hasFade := false
+        this._hasZoom := false
+        this._hasRotate := false
+        for style in this.animStyle {
+            switch style {
+                case "slide": this._hasSlide := true
+                case "fade": this._hasFade := true
+                case "zoom": this._hasZoom := true
+                case "rotate": this._hasRotate := true
+            }
+        }
+        this.opacity := this._hasFade ? 0 : 1
+        this.scale := this._hasZoom ? 0.5 : 1
+        this.rotation := this._hasRotate ? 10 : 0
         this.animState := "in"
         this.animStartTime := A_TickCount
-        this.progressStartTime := A_TickCount + this.animDuration
-
-
-        this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
+        this._initialized := true
     }
-
     Tick() {
-        if (!this.hwnd)
-            return
-
         now := A_TickCount
-        dirty := false
-
-        if (this.animState != "out" && this.autoDismiss) {
-            if !(Toastify.hoverPauseEnabled && this.hovered && this.progressPaused) {
-                dynDuration := this.duration
-                if (this.hwnd && Toastify.registry.Has(this.hwnd))
-                    dynDuration := Toastify.registry[this.hwnd].duration
-                maxLifetime := dynDuration + (this.animDuration * 2) + 1000
-                if ((now - this.creationTime) > maxLifetime) {
-                    this.StartExit()
-                    return
-                }
-            }
-        }
-
-
         if (this.repoActive) {
-            if (Abs(this.currentX - this.repoTargetX) < 0.5 && Abs(this.currentY - this.repoTargetY) < 0.5) {
+            elapsed := now - this.repoStartTime
+            progress := Min(1.0, elapsed / Max(1, this.repoDuration))
+            eased := ToastEasing.getEasing("easeOutCubic", progress)
+            this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
+            this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
+            if (progress >= 1.0) {
+                this.animState := "visible"
+                ; reanudar toasts que pausamos por la entrada
+                for other in Toastify.toasts {
+                    if (other != this && other.HasProp("_pausedForNewToast") && other._pausedForNewToast) {
+                        other._pausedForNewToast := false
+                        other.progressPaused := false
+                        pausedDuration := A_TickCount - other.progressPauseTime
+                        other.progressStartTime += pausedDuration
+                        if (other.hwnd && Toastify.registry.Has(other.hwnd))
+                            Toastify.registry[other.hwnd].duration += pausedDuration
+                    }
+                }
                 this.repoActive := false
-            } else {
-                elapsed := now - this.repoStartTime
-                if (elapsed >= this.repoDuration) {
-                    this.currentX := this.repoTargetX
-                    this.currentY := this.repoTargetY
-                    this.repoActive := false
-                    dirty := true
-                } else {
-                    t := elapsed / this.repoDuration
-                    ease := ToastEasing.getEasing("easeOutCubic", t)
-                    this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * ease
-                    this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * ease
-                    dirty := true
-                }
+                this.currentX := this.repoTargetX
+                this.currentY := this.repoTargetY
+                this.Draw()
+                this.UpdateWindow(this.currentX, this.currentY)
+                return
             }
+            this.Draw()
+            return
         }
-
-
-        if (this.animState == "in" || this.animState == "out") {
+        if (this.animState == "in") {
             elapsed := now - this.animStartTime
-            easeT := 0
-
-            if (elapsed < this.animDuration) {
-                easeT := elapsed / this.animDuration
-                ease := ToastEasing.getEasing(this.animEasing, easeT)
-
-
-                if (this.animState == "in") {
-
-                    if (this._hasSlide) {
-                        entrance := this.resolvedEntrance
-
-                        offX := 0, offY := 0
-                        if (entrance == "right")
-                            offX := (A_ScreenWidth - this.targetX) * (1 - ease)
-                        else if (entrance == "left")
-                            offX := (-this.width - this.targetX) * (1 - ease)
-                        else if (entrance == "top")
-                            offY := (-this.height - this.targetY) * (1 - ease)
-                        else if (entrance == "bottom")
-                            offY := (A_ScreenHeight - this.targetY) * (1 - ease)
-
-                        this.currentX := this.targetX + offX
-                        this.currentY := this.targetY + offY
-                        dirty := true
-                    } else if (!this.repoActive) {
-                        this.currentX := this.targetX
-                        this.currentY := this.targetY
-                    }
-
-
-                    if (this._hasFade) {
-                        this.opacity := ease
-                        dirty := true
-                    } else {
-                        this.opacity := 1.0
-                    }
-
-
-                    if (this._hasZoom) {
-                        this.scale := ease
-                        dirty := true
-                    } else {
-                        this.scale := 1.0
-                    }
-
-
-                    if (this._hasRotate) {
-                        this.rotation := -90.0 * (1.0 - ease)
-                        dirty := true
-                    } else {
-                        this.rotation := 0.0
-                    }
-                }
-                else {
-
-                    if (this._hasSlide) {
-                        entrance := this.resolvedEntrance
-
-                        offX := 0, offY := 0
-                        if (entrance == "right")
-                            offX := (A_ScreenWidth - this.targetX) * ease
-                        else if (entrance == "left")
-                            offX := (-this.width - this.targetX) * ease
-                        else if (entrance == "top")
-                            offY := (-this.height - this.targetY) * ease
-                        else if (entrance == "bottom")
-                            offY := (A_ScreenHeight - this.targetY) * ease
-
-                        this.currentX := this.targetX + offX
-                        this.currentY := this.targetY + offY
-                        dirty := true
-                    }
-
-
-                    if (this._hasFade) {
-                        this.opacity := 1.0 - ease
-                        dirty := true
-                    } else {
-                        this.opacity := 1.0
-                    }
-
-
-                    if (this._hasZoom) {
-                        this.scale := 1.0 - ease
-                        dirty := true
-                    } else {
-                        this.scale := 1.0
-                    }
-
-
-                    if (this._hasRotate) {
-
-                        diag := Sqrt(this.width ** 2 + this.height ** 2)
-                        requiredSize := Ceil(diag)
-                        if (this.bufferWidth < requiredSize || this.bufferHeight < requiredSize) {
-                            this.ResizeBuffer(requiredSize, requiredSize)
-                        }
-
-                        this.rotation := 90.0 * ease
-                        dirty := true
-                    } else {
-                        this.rotation := 0.0
-                    }
-                }
+            progress := Min(1.0, elapsed / Max(1, this.animDuration))
+            eased := ToastEasing.getEasing(this.animEasing, progress)
+            if (this._hasSlide) {
+                this.currentX := this.animStartX + (this.targetX - this.animStartX) * eased
+                this.currentY := this.animStartY + (this.targetY - this.animStartY) * eased
             } else {
-
-                if (this.animState == "in") {
-                    this.animState := "idle"
-                    this.currentX := this.targetX
-                    this.currentY := this.targetY
-                    this.opacity := 1.0
-                    this.scale := 1.0
-                    this.rotation := 0.0
-                    if (this._hasZoom || this._hasRotate) {
-                        if (this.bufferWidth > this.width || this.bufferHeight > this.height) {
-                            this.ShrinkBuffer()
-                        }
-                        this.RenderToWindow()
-                    }
-                    if (this.repoActive) {
-                        this.repoActive := false
-                    }
-                    dirty := true
-                } else {
-
-                    this.opacity := 0
-                    this.scale := 0
-                    if (this._hasRotate)
-                        this.rotation := 90.0
-                    this.Dismiss()
-                    return
-                }
+                this.currentX := this.targetX
+                this.currentY := this.targetY
             }
+            this.opacity := this._hasFade ? eased : 1.0
+            this.scale := this._hasZoom ? (0.5 + 0.5 * eased) : 1.0
+            this.rotation := this._hasRotate ? ((1 - eased) * 10 * (this.resolvedEntrance == "left" ? -1 : 1)) : 0
+            if (progress >= 1.0) {
+                this.animState := "visible"
+                this.currentX := this.targetX
+                this.currentY := this.targetY
+                this.opacity := 1.0
+                this.scale := 1.0
+                this.rotation := 0
+                this.progressStartTime := now
+                this.repoActive := false
+            }
+            this.Draw()
+            return
         }
-
-
-        if (this.showProgress && this.duration > 0 && this.animState != "out") {
-            if (!this.progressPaused) {
-                if (now >= this.progressStartTime) {
-                    elapsed := now - this.progressStartTime
-                    newProgress := Min(1.0, elapsed / this.duration)
-
-                    if (newProgress != this.progress) {
-                        this.progress := newProgress
-
-                        if (Abs(newProgress - this.lastProgress) > 0.005 || newProgress >= 1.0) {
-                            this.lastProgress := newProgress
-                            this.cacheDirty := true
-                            this.Draw()
-                            dirty := true
-                        }
+        if (this.animState == "out") {
+            elapsed := now - this.animStartTime
+            progress := Min(1.0, elapsed / Max(1, this.animDuration))
+            eased := ToastEasing.getEasing(this.animEasing, progress)
+            if (this._hasSlide) {
+                this.currentX := this.exitStartX + (this.exitTargetX - this.exitStartX) * eased
+                this.currentY := this.exitStartY + (this.exitTargetY - this.exitStartY) * eased
+            }
+            this.opacity := this._hasFade ? (1.0 - eased) : 1.0
+            this.scale := this._hasZoom ? (1.0 - 0.5 * eased) : 1.0
+            this.rotation := this._hasRotate ? (eased * 10 * (this.resolvedEntrance == "left" ? 1 : -1)) : 0
+            this.Draw()
+            return
+        }
+        if (this.animState == "visible") {
+            if (this.showProgress && this.duration > 0 && !this.progressPaused) {
+                elapsed := now - this.progressStartTime
+                this.progress := Min(1.0, elapsed / this.duration)
+                diff := Abs(this.progress - this.lastProgress)
+                if (diff > 0.005) {
+                    this.cacheDirty := true
+                    this.lastProgress := this.progress
+                    ; si el salto es grande (pausa larga), no dibujar intermedio
+                    if (diff < 0.15)
+                        this.Draw()
+                    else {
+                        ; salto grande: actualizar sin animar suavemente
+                        this.lastProgress := this.progress
+                        this.Draw()
                     }
-
-                    if (this.progress >= 1.0) {
-                        if (this.lastProgress < 1.0) {
-                            this.lastProgress := 1.0
-                            this.cacheDirty := true
-                            this.Draw()
-                            dirty := true
+                }
+                if (this.progress >= 1.0) {
+                    if (this.autoDismiss) {
+                        if (!this.progressCompleteTime)
                             this.progressCompleteTime := now
-                        }
-
-                        if (this.progressCompleteTime > 0 && (now - this.progressCompleteTime) > Toast.progressGracePeriod) {
+                        else if (now - this.progressCompleteTime > Toast.progressGracePeriod)
                             this.StartExit()
-                            return
-                        }
-
-                        if (!this.hovered || !Toastify.hoverPauseEnabled) {
-                            this.StartExit()
-                            return
-                        }
                     }
                 }
-            }
-        }
-
-        if (dirty) {
-            if (this.rotation != 0 || this.scale != 1.0) {
-                this.RenderToWindow()
-            } else {
-                this.UpdateWindow(this.currentX, this.currentY, Floor(this.opacity * 255))
             }
         }
     }
-
     StartExit() {
         if (this.animState == "out")
             return
 
+        wa := ToastDPI.WorkArea(this.currentX, this.currentY)
+
+        this.exitStartX := this.currentX
+        this.exitStartY := this.currentY
+
+        switch this.resolvedEntrance {
+            case "right":
+                this.exitTargetX := wa.x + wa.w + 20
+                this.exitTargetY := this.currentY
+            case "left":
+                this.exitTargetX := wa.x - this.width - 20
+                this.exitTargetY := this.currentY
+            case "top":
+                this.exitTargetX := this.currentX
+                this.exitTargetY := wa.y - this.height - 20
+            case "bottom":
+                this.exitTargetX := this.currentX
+                this.exitTargetY := wa.y + wa.h + 20
+            default:
+                this.exitTargetX := wa.x + wa.w + 20
+                this.exitTargetY := this.currentY
+        }
+
         this.animState := "out"
         this.animStartTime := A_TickCount
-        this.userInitiatedExit := true
 
-
-        if (this._hasRotate) {
-            diag := Sqrt(this.width ** 2 + this.height ** 2)
-            this.ResizeBuffer(Ceil(diag), Ceil(diag))
-        }
-
-
-        idx := 0
-        for i, t in Toastify.toasts {
+        for i, t in Toastify.toasts
             if (t == this) {
-                idx := i
+                Toastify.toasts.RemoveAt(i)
                 break
             }
-        }
-        if (idx > 0) {
-            Toastify.toasts.RemoveAt(idx)
-        }
-
-
-        Toastify.exitingToasts.Push(this)
-
-
-        Toastify.__reflow(true)
-
-
-        if (this.onCloseCallback) {
-            try this.onCloseCallback(this)
-        }
-
-
-        if (Toastify.registry.Has(this.hwnd)) {
-            Toastify.registry.Delete(this.hwnd)
-        }
+        local found := false
+        for t in Toastify.exitingToasts
+            if (t == this) {
+                found := true
+                break
+            }
+        if (!found)
+            Toastify.exitingToasts.Push(this)
     }
-
     ForceClose() {
         this.userInitiatedExit := true
         this.hovered := false
         this.progressPaused := false
         this.StartExit()
     }
-
     Close() {
         this.ForceClose()
     }
-
     OnMouseMove(x, y) {
         if (this.userInitiatedExit || this.animState == "out")
             return
         wasHovered := this.hovered
         this.hovered := true
-
         wasCloseHovered := this.closeHovered
         this.closeHovered := false
-
-        for r in this.clickRegions {
+        for r in this.clickRegions
             if (r.type = "close" && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
                 this.closeHovered := true
                 break
             }
-        }
-
-        if (wasCloseHovered != this.closeHovered) {
+        if (wasCloseHovered != this.closeHovered)
             this.Draw()
-
-
-        }
-
         if (!wasHovered && Toastify.hoverPauseEnabled && this.autoDismiss) {
             this.progressPaused := true
             this.progressPauseTime := A_TickCount
         }
     }
-
     OnMouseLeave() {
         if (this.hovered) {
             this.hovered := false
             this.closeHovered := false
-
             if (this.autoDismiss) {
                 if (this.progressPaused) {
                     this.progressPaused := false
                     pausedDuration := A_TickCount - this.progressPauseTime
                     this.progressStartTime += pausedDuration
-
-
-                    if (this.hwnd && Toastify.registry.Has(this.hwnd)) {
+                    if (this.hwnd && Toastify.registry.Has(this.hwnd))
                         Toastify.registry[this.hwnd].duration += pausedDuration
-                    }
                 }
-            } else {
-
+            } else
                 this.progressPaused := false
-            }
-
             this.Draw()
             this.UpdateWindow(this.currentX, this.currentY)
         }
     }
-
     OnClick(x, y) {
         offsetX := (this.bufferWidth > this.width) ? (this.bufferWidth - this.width) / 2 : 0
         offsetY := (this.bufferHeight > this.height) ? (this.bufferHeight - this.height) / 2 : 0
         cx := x - offsetX
         cy := y - offsetY
         clickedRegion := false
-        for r in this.clickRegions {
+        for r in this.clickRegions
             if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) {
                 clickedRegion := true
-                if r.cb {
+                if r.cb
                     try r.cb()
-                }
-                if (r.type = "button") {
+                if (r.type = "button")
                     this.StartExit()
-                } else if (r.type = "close") {
+                else if (r.type = "close")
                     this.ForceClose()
-                }
                 break
             }
-        }
-
         if (!clickedRegion && this.onClickCallback) {
             try this.onClickCallback()
         }
     }
-
-    Dismiss() {
-        this.Destroy()
-
-
-        for i, t in Toastify.exitingToasts {
-            if (t = this) {
+    Dismiss(instant := false) {
+        if (!instant && this.animState != "out") {
+            this.StartExit()
+            return
+        }
+        for i, t in Toastify.exitingToasts
+            if (t == this) {
                 Toastify.exitingToasts.RemoveAt(i)
                 break
             }
-        }
-
-
-        for i, t in Toastify.toasts {
-            if (t = this) {
+        for i, t in Toastify.toasts
+            if (t == this) {
                 Toastify.toasts.RemoveAt(i)
                 break
             }
-        }
-
-
-        Toastify.__reflow(true)
-    }
-
-    Destroy() {
-        if (this.hwnd && Toastify.registry.Has(this.hwnd)) {
+        if (this.hwnd && Toastify.registry.Has(this.hwnd))
             Toastify.registry.Delete(this.hwnd)
-        }
-
-        if (this.hdc) {
-            SelectObject(this.hdc, this.obm)
-            DeleteObject(this.hbm)
-            DeleteDC(this.hdc)
-            Gdip_DeleteGraphics(this.G)
-            this.hdc := 0
+        this.Destroy()
+    }
+    Destroy() {
+        if (!this.hwnd)
+            return
+        if (this.GCache) {
+            Gdip_DeleteGraphics(this.GCache)
+            this.GCache := 0
         }
         if (this.pBitmapCache) {
             Gdip_DisposeImage(this.pBitmapCache)
             this.pBitmapCache := 0
         }
-        if (this.GCache) {
-            Gdip_DeleteGraphics(this.GCache)
-            this.GCache := 0
+        if (this.G) {
+            Gdip_DeleteGraphics(this.G)
+            this.G := 0
         }
-        if (this.gui) {
-            this.gui.Destroy()
-            this.gui := 0
-            this.hwnd := 0
+        if (this.hbm) {
+            SelectObject(this.hdc, this.obm)
+            DeleteObject(this.hbm)
+            this.hbm := 0
         }
+        if (this.hdc) {
+            DeleteDC(this.hdc)
+            this.hdc := 0
+        }
+
+        ; if (this._closePen)
+        ;     Gdip_DeletePen(this._closePen)
+        ; if (this._closePenHover)
+        ;     Gdip_DeletePen(this._closePenHover)
+        hwnd := this.hwnd
+        this.hwnd := 0
+        this.gui := 0
+        if (DllCall("IsWindow", "ptr", hwnd))
+            DllCall("DestroyWindow", "ptr", hwnd)
     }
 }
