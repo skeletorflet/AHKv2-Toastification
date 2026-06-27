@@ -182,6 +182,8 @@ class Toastify {
     static __watchdogTimer := 0
     static __lastTickTime := 0
     static _reflowNeeded := false
+
+    static __wasAnyIconic := false
     static registry := Map()
     static config := ToastConfig()
     static animStartX := 0
@@ -393,6 +395,9 @@ class Toastify {
                 toRemove.Push(hwnd)
                 continue
             }
+
+            ; ── ELIMINADO: la restauración de IsIconic ahora la maneja __globalTick ──
+
             t := (data.HasOwnProp("instance") && data.instance) ? data.instance : 0
             if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled)
                 continue
@@ -525,12 +530,7 @@ class Toastify {
         Toastify.toasts.Push(t)
         Toastify.__reflow(true)
         t.InitAnimation()
-        for existing in Toastify.toasts
-            if (existing != t && existing.animState == "visible" && !existing.progressPaused) {
-                existing._pausedForNewToast := true
-                existing.progressPaused := true
-                existing.progressPauseTime := A_TickCount
-            }
+
         t.AnimateIn()
         t.Draw()
         Toastify._reflowNeeded := true
@@ -637,7 +637,7 @@ class Toastify {
                         t.animStartY := y
                     else
                         t.animStartX := x
-                } else if (t.animState == "visible") {
+                } else if (t.animState == "visible" || t.animState == "in") {
                     if (animate) {
                         if (Abs(t.repoTargetX - x) > 0.5 || Abs(t.repoTargetY - y) > 0.5) {
                             t.repoStartX := t.currentX
@@ -646,11 +646,18 @@ class Toastify {
                             t.repoTargetY := y
                             t.repoStartTime := now
                             t.repoActive := true
+                            ; Si estaba en "in", promover a "visible" para que el repositioning funcione
+                            if (t.animState == "in")
+                                t.animState := "visible"
                         }
                     } else {
                         t.repoActive := false
+                        t.repoTargetX := x
+                        t.repoTargetY := y
                         t.currentX := x
                         t.currentY := y
+                        if (t.animState == "in")
+                            t.animState := "visible"
                         if (t.hwnd && DllCall("IsWindow", "ptr", t.hwnd))
                             t.UpdateWindow(x, y)
                     }
@@ -658,11 +665,65 @@ class Toastify {
             }
         }
     }
+
     static __globalTick(*) {
         now := A_TickCount
         elapsed := now - Toastify.__lastTickTime
         Toastify.__lastTickTime := now
         SetTimer(Toastify.__globalTimer, -Max(1, 16 - elapsed))
+
+        ; ── Detección robusta de minimizado (Win+D) ──────────────
+        anyIconicNow := false
+        iconicHwnds := []
+        for hwnd, data in Toastify.registry {
+            if (!DllCall("IsWindow", "ptr", hwnd))
+                continue
+            if (DllCall("IsIconic", "ptr", hwnd)) {
+                anyIconicNow := true
+                iconicHwnds.Push(hwnd)
+            }
+        }
+
+        if (anyIconicNow) {
+            ; Restaurar ventanas minimizadas con SetWindowPos
+            ; (SW_SHOWNOACTIVATE=4 NO restaura ventanas minimizadas)
+            for hwnd in iconicHwnds {
+                ; Método robusto: quitar WS_MINIMIZE del estilo + SetWindowPos
+                style := DllCall("GetWindowLongPtr", "ptr", hwnd, "int", -16, "ptr")
+                if (style & 0x20000000) {          ; WS_MINIMIZE
+                    style &= ~0x20000000
+                    DllCall("SetWindowLongPtr", "ptr", hwnd, "int", -16, "ptr", style)
+                    ; SWP_NOSIZE(1)|SWP_NOMOVE(2)|SWP_NOACTIVATE(16)|SWP_SHOWWINDOW(64)|SWP_FRAMECHANGED(32) = 0x0073
+                    DllCall("SetWindowPos", "ptr", hwnd, "ptr", -1
+                        , "int", 0, "int", 0, "int", 0, "int", 0
+                        , "uint", 0x0073)
+                }
+            }
+        }
+
+        if (Toastify.__wasAnyIconic && !anyIconicNow) {
+            ; ── Acabamos de salir del estado minimizado: snap total ──
+            Toastify.__reflow(false)
+            for t in Toastify.toasts {
+                ; Forzar animState a "visible" (pudo quedar en "in")
+                if (t.animState != "out")
+                    t.animState := "visible"
+                t.repoActive := false
+                t.repoTargetX := t.targetX
+                t.repoTargetY := t.targetY
+                t.currentX := t.targetX
+                t.currentY := t.targetY
+                t.cacheDirty := true
+                t._lastRenderX := -999999
+                t._lastRenderY := -999999
+                t._lastAlpha := -1
+                t.Draw()
+                ; Forzar UpdateLayeredWindow completo
+                try t.UpdateWindow(t.currentX, t.currentY, Floor(t.opacity * 255))
+            }
+        }
+        Toastify.__wasAnyIconic := anyIconicNow
+
 
         ; lógica de expiración (liviana)
         while (Toastify.toasts.Length > Toastify.maxToasts) {
@@ -1091,8 +1152,8 @@ class Toast {
     bufferHeight := 0
     progress := 0.0
     progressStartTime := 0
-    progressPaused := false
-    progressPauseTime := 0
+    ; progressPaused := false
+    ; progressPauseTime := 0
     lastProgress := 0.0
     creationTime := 0
     clickRegions := []
@@ -1115,6 +1176,7 @@ class Toast {
     borderRadius := 18
     borderWidth := 0
     renderQuality := "High"
+    _baseOpacity := 1.0
     _windowShown := false
     _initialized := false
 
@@ -1148,6 +1210,9 @@ class Toast {
                     this.onClickCallback := opts.onClick
                 if opts.HasProp("onClose")
                     this.onCloseCallback := opts.onClose
+                if opts.HasProp("opacity")
+                    this._baseOpacity := opts.opacity
+
             }
             for key in Toast._styleKeys
                 try
@@ -1285,7 +1350,7 @@ class Toast {
         d := this.dpiFactor
         this.clickRegions := []
         Gdip_GraphicsClear(this.GCache)
-        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width, this.height, this.borderRadius)
+        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius)
         pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
         Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
         Gdip_DeleteBrush(pBrush)
@@ -1418,7 +1483,9 @@ class Toast {
         }
     }
 
-    UpdateWindow(x, y, alpha := 255) {
+    UpdateWindow(x, y, alpha := -1) {
+        if (alpha = -1)
+            alpha := Floor(this.opacity * 255)
         if (!this.hwnd)
             return
         if (!DllCall("IsWindow", "ptr", this.hwnd))
@@ -1427,6 +1494,11 @@ class Toast {
             return
         w := this.bufferWidth
         h := this.bufferHeight
+        ; ── compensar offset cuando el buffer es más grande que el toast ──
+        offsetX := (this.bufferWidth - this.width) // 2
+        offsetY := (this.bufferHeight - this.height) // 2
+        wx := x - offsetX
+        wy := y - offsetY
         if (!this._windowShown) {
             this._windowShown := true
             try
@@ -1436,7 +1508,7 @@ class Toast {
                 return
             }
         }
-        UpdateLayeredWindow(this.hwnd, this.hdc, x, y, w, h, alpha)
+        UpdateLayeredWindow(this.hwnd, this.hdc, wx, wy, w, h, alpha)
     }
     DrawIcon(x, y, size, iconType, pal) {
         switch iconType {
@@ -1566,24 +1638,28 @@ class Toast {
         }
 
         wa := ToastDPI.WorkArea(this.targetX, this.targetY)
+        ; offset del buffer expandido (ej: rotate agranda el buffer)
+        offsetX := (this.bufferWidth - this.width) // 2
+        offsetY := (this.bufferHeight - this.height) // 2
 
         switch this.resolvedEntrance {
             case "right":
-                this.animStartX := wa.x + wa.w + 20
+                this.animStartX := wa.x + wa.w + 20 + offsetX
                 this.animStartY := this.targetY
             case "left":
-                this.animStartX := wa.x - this.width - 20
+                this.animStartX := wa.x - this.width - 20 - offsetX
                 this.animStartY := this.targetY
             case "top":
                 this.animStartX := this.targetX
-                this.animStartY := wa.y - this.height - 20
+                this.animStartY := wa.y - this.height - 20 - offsetY
             case "bottom":
                 this.animStartX := this.targetX
-                this.animStartY := wa.y + wa.h + 20
+                this.animStartY := wa.y + wa.h + 20 + offsetY
             default:
-                this.animStartX := wa.x + wa.w + 20
+                this.animStartX := wa.x + wa.w + 20 + offsetX
                 this.animStartY := this.targetY
         }
+
 
         this.currentX := this.animStartX
         this.currentY := this.animStartY
@@ -1599,7 +1675,7 @@ class Toast {
                 case "rotate": this._hasRotate := true
             }
         }
-        this.opacity := this._hasFade ? 0 : 1
+        this.opacity := this._hasFade ? 0 : this._baseOpacity
         this.scale := this._hasZoom ? 0.5 : 1
         this.rotation := this._hasRotate ? 10 : 0
         this.animState := "in"
@@ -1615,28 +1691,15 @@ class Toast {
             this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
             this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
             if (progress >= 1.0) {
-                this.animState := "visible"
-                ; reanudar toasts que pausamos por la entrada
-                for other in Toastify.toasts {
-                    if (other != this && other.HasProp("_pausedForNewToast") && other._pausedForNewToast) {
-                        other._pausedForNewToast := false
-                        other.progressPaused := false
-                        pausedDuration := A_TickCount - other.progressPauseTime
-                        other.progressStartTime += pausedDuration
-                        if (other.hwnd && Toastify.registry.Has(other.hwnd))
-                            Toastify.registry[other.hwnd].duration += pausedDuration
-                    }
-                }
                 this.repoActive := false
                 this.currentX := this.repoTargetX
                 this.currentY := this.repoTargetY
-                this.Draw()
-                this.UpdateWindow(this.currentX, this.currentY)
-                return
+                ; ── ya NO va el bloque de reanudación aquí ──
             }
             this.Draw()
             return
         }
+
         if (this.animState == "in") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
@@ -1648,22 +1711,28 @@ class Toast {
                 this.currentX := this.targetX
                 this.currentY := this.targetY
             }
-            this.opacity := this._hasFade ? eased : 1.0
+            this.opacity := this._hasFade ? (eased * this._baseOpacity) : this._baseOpacity
             this.scale := this._hasZoom ? (0.5 + 0.5 * eased) : 1.0
             this.rotation := this._hasRotate ? ((1 - eased) * 10 * (this.resolvedEntrance == "left" ? -1 : 1)) : 0
             if (progress >= 1.0) {
                 this.animState := "visible"
                 this.currentX := this.targetX
                 this.currentY := this.targetY
-                this.opacity := 1.0
+                this.opacity := this._baseOpacity
                 this.scale := 1.0
                 this.rotation := 0
                 this.progressStartTime := now
                 this.repoActive := false
+                if (this._hasRotate && (this.bufferWidth != this.width || this.bufferHeight != this.height))
+                    this.ResizeBuffer(this.width, this.height)
+
+                ; ── NUEVO: reanudar toasts pausados por nuestra entrada ──
+
             }
             this.Draw()
             return
         }
+
         if (this.animState == "out") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
@@ -1672,7 +1741,7 @@ class Toast {
                 this.currentX := this.exitStartX + (this.exitTargetX - this.exitStartX) * eased
                 this.currentY := this.exitStartY + (this.exitTargetY - this.exitStartY) * eased
             }
-            this.opacity := this._hasFade ? (1.0 - eased) : 1.0
+            this.opacity := this._hasFade ? ((1.0 - eased) * this._baseOpacity) : this._baseOpacity
             this.scale := this._hasZoom ? (1.0 - 0.5 * eased) : 1.0
             this.rotation := this._hasRotate ? (eased * 10 * (this.resolvedEntrance == "left" ? 1 : -1)) : 0
             this.Draw()
@@ -1711,27 +1780,30 @@ class Toast {
             return
 
         wa := ToastDPI.WorkArea(this.currentX, this.currentY)
+        offsetX := (this.bufferWidth - this.width) // 2
+        offsetY := (this.bufferHeight - this.height) // 2
 
         this.exitStartX := this.currentX
         this.exitStartY := this.currentY
 
         switch this.resolvedEntrance {
             case "right":
-                this.exitTargetX := wa.x + wa.w + 20
+                this.exitTargetX := wa.x + wa.w + 20 + offsetX
                 this.exitTargetY := this.currentY
             case "left":
-                this.exitTargetX := wa.x - this.width - 20
+                this.exitTargetX := wa.x - this.width - 20 - offsetX
                 this.exitTargetY := this.currentY
             case "top":
                 this.exitTargetX := this.currentX
-                this.exitTargetY := wa.y - this.height - 20
+                this.exitTargetY := wa.y - this.height - 20 - offsetY
             case "bottom":
                 this.exitTargetX := this.currentX
-                this.exitTargetY := wa.y + wa.h + 20
+                this.exitTargetY := wa.y + wa.h + 20 + offsetY
             default:
-                this.exitTargetX := wa.x + wa.w + 20
+                this.exitTargetX := wa.x + wa.w + 20 + offsetX
                 this.exitTargetY := this.currentY
         }
+
 
         this.animState := "out"
         this.animStartTime := A_TickCount
@@ -1792,8 +1864,7 @@ class Toast {
                 }
             } else
                 this.progressPaused := false
-            this.Draw()
-            this.UpdateWindow(this.currentX, this.currentY)
+            this.Draw()   ; ← Draw() ya hace el UpdateWindow con el alpha correcto. Basta con esto.
         }
     }
     OnClick(x, y) {
@@ -1835,6 +1906,34 @@ class Toast {
         if (this.hwnd && Toastify.registry.Has(this.hwnd))
             Toastify.registry.Delete(this.hwnd)
         this.Destroy()
+    }
+    ResizeBuffer(newW, newH) {
+        if (newW == this.bufferWidth && newH == this.bufferHeight)
+            return
+
+        ; Liberar recursos anteriores
+        if (this.G) {
+            Gdip_DeleteGraphics(this.G)
+            this.G := 0
+        }
+        if (this.hbm) {
+            SelectObject(this.hdc, this.obm)
+            DeleteObject(this.hbm)
+            this.hbm := 0
+        }
+        if (this.hdc) {
+            DeleteDC(this.hdc)
+            this.hdc := 0
+        }
+
+        ; Crear nuevo buffer
+        this.bufferWidth := newW
+        this.bufferHeight := newH
+        this.hbm := CreateDIBSection(newW, newH)
+        this.hdc := CreateCompatibleDC()
+        this.obm := SelectObject(this.hdc, this.hbm)
+        this.G := Gdip_GraphicsFromHDC(this.hdc)
+        this.__applyRenderQuality(this.G, false)
     }
     Destroy() {
         if (!this.hwnd)

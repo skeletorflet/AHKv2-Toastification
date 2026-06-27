@@ -17,12 +17,13 @@ return
 
 clickHandler(*) {
     perm := Random(0, 1)
-    Toastify.Warning("Update Available", "v2.1.0 is ready.", [{ text: "Update", onClick: (*) => Run("updater.exe") }, { text: "Later", onClick: (*) => MsgBox("Snoozed") },
+    Toastify.Show("Update Available", "v2.1.0 is ready.", [{ text: "Update", onClick: (*) => Run("updater.exe") }, { text: "Later", onClick: (*) => MsgBox("Snoozed") },
     ], {
         animStyle: [Toastify.ANIM_STYLE.ZOOM, Toastify.ANIM_STYLE.SLIDE],
         animEasing: Toastify.EASING.BOUNCE_OUT,
-        theme: "cyberpunk",
-        duration: 5000,
+        theme: Toastify.THEMES.VAPOR,
+        duration: 0,
+        opacity: 0.5,
     })
 }
 
