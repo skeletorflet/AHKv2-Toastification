@@ -7,7 +7,8 @@ Toastify.Start("dark", "top-right")
 ; Global config for demo
 Toastify.SetConfig({
     width: 500,
-    animDuration: 500
+    animDuration: 500,
+    rotationDegree: 90,
 })
 
 ; GUI for Testing

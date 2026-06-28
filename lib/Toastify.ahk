@@ -112,7 +112,7 @@ class ToastEasing {
         c := 1.4
         if (t < 0.5)
             return (c * 4 * t * t * t)
-        return 1 - (((-2 * t + 2) ** 3) * c) / 2
+        return (c / 2) + (1 - c / 2) * (1 - ((-2 * t + 2) ** 3))
     }
     static getEasing(name, t) {
         if (!ToastEasing.funcs) {
@@ -179,7 +179,7 @@ class Toastify {
     static hoverPauseEnabled := true
     static maxToasts := 8
     static __globalTimer := 0
-    static __watchdogTimer := 0
+    static __frameCounter := 0
     static __lastTickTime := 0
     static _reflowNeeded := false
 
@@ -305,8 +305,11 @@ class Toastify {
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
             "width", "borderRadius", "iconSize", "paddingX", "paddingY", "repoDuration",
-            "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality"]
+            "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality",
+            "rotationDegree"]
+
         for key in keys {
+
             if cfg.HasProp(key)
                 Toastify.config.%key% := cfg.%key%
         }
@@ -332,11 +335,8 @@ class Toastify {
             ProcessSetPriority(Toastify.PRIORITY.HIGH)
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
             Toastify.__lastTickTime := A_TickCount
+            Toastify.__frameCounter := 0
             SetTimer(Toastify.__globalTimer, -16)
-            Toastify.__watchdogTimer := ObjBindMethod(Toastify, "__watchdogTick")
-            SetTimer(Toastify.__watchdogTimer, 100)
-            Toastify.__mouseTimer := ObjBindMethod(Toastify, "__mouseTimerTick")
-            SetTimer(Toastify.__mouseTimer, 50)
         }
         Toastify.theme := theme
         Toastify.position := position
@@ -364,10 +364,6 @@ class Toastify {
     static Shutdown(*) {
         if Toastify.__globalTimer
             SetTimer(Toastify.__globalTimer, 0)
-        if Toastify.__watchdogTimer
-            SetTimer(Toastify.__watchdogTimer, 0)
-        if Toastify.__mouseTimer
-            SetTimer(Toastify.__mouseTimer, 0)
         ToastMouseHook.Stop()
         for t in Toastify.toasts
             t.Destroy()
@@ -384,43 +380,6 @@ class Toastify {
             ToastTheme.Shutdown()
             Gdip_Shutdown(Toastify.pToken)
             Toastify.pToken := 0
-        }
-    }
-
-    static __watchdogTick(*) {
-        now := A_TickCount
-        toRemove := []
-        for hwnd, data in Toastify.registry {
-            if (!DllCall("IsWindow", "ptr", hwnd)) {
-                toRemove.Push(hwnd)
-                continue
-            }
-
-            ; ── ELIMINADO: la restauración de IsIconic ahora la maneja __globalTick ──
-
-            t := (data.HasOwnProp("instance") && data.instance) ? data.instance : 0
-            if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled)
-                continue
-            if (data.duration > 0 && t) {
-                expectedLifetime := t.animDuration + data.duration + 500
-                actualLifetime := now - data.startTime
-                if (actualLifetime > expectedLifetime) {
-                    if (t.animState == "out")
-                        if (actualLifetime > expectedLifetime + t.animDuration + 500) {
-                            t.Dismiss(true)
-                            toRemove.Push(hwnd)
-                        }
-                        else
-                            t.StartExit()
-                }
-            } else if (data.duration > 0 && !t)
-                if (now - data.startTime > data.duration + 1000)
-                    toRemove.Push(hwnd)
-        }
-
-        for hwnd in toRemove {
-            if (Toastify.registry.Has(hwnd))
-                Toastify.registry.Delete(hwnd)
         }
     }
 
@@ -672,15 +631,62 @@ class Toastify {
         Toastify.__lastTickTime := now
         SetTimer(Toastify.__globalTimer, -Max(1, 16 - elapsed))
 
-        ; ── Detección robusta de minimizado (Win+D) ──────────────
+        ; ── Contador de frames: multiplexa sub-tareas de menor frecuencia ──
+        frame := ++Toastify.__frameCounter
+
+        ; ── Mouse hover: cada 3 frames (~20Hz, antes era __mouseTimerTick) ──
+        if (Mod(frame, 3) = 1) {
+            MouseGetPos(&mx, &my)
+            for t in Toastify.toasts
+                Toastify.__checkHover(t, mx, my)
+            for t in Toastify.exitingToasts
+                Toastify.__checkHover(t, mx, my)
+        }
+
+        ; ── Escaneo del registry: IsWindow + IsIconic (combinado) ──
+        ;    Aprovechamos para detectar hwnds muertos y eliminarlos
+        ;    (antes esto se hacía dos veces: aquí y en __watchdogTick).
         anyIconicNow := false
         iconicHwnds := []
+        deadHwnds := []
         for hwnd, data in Toastify.registry {
-            if (!DllCall("IsWindow", "ptr", hwnd))
+            if (!DllCall("IsWindow", "ptr", hwnd)) {
+                deadHwnds.Push(hwnd)
                 continue
+            }
             if (DllCall("IsIconic", "ptr", hwnd)) {
                 anyIconicNow := true
                 iconicHwnds.Push(hwnd)
+            }
+        }
+        for hwnd in deadHwnds
+            if (Toastify.registry.Has(hwnd))
+                Toastify.registry.Delete(hwnd)
+
+        ; ── Watchdog de tiempo de vida: cada 6 frames (~10Hz, antes __watchdogTick) ──
+        ;    El IsWindow ya está garantizado (filtrado arriba).
+        if (Mod(frame, 6) = 1) {
+            for hwnd, data in Toastify.registry {
+                t := (data.HasOwnProp("instance") && data.instance) ? data.instance : 0
+                if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled)
+                    continue
+                if (data.duration > 0 && t) {
+                    expectedLifetime := t.animDuration + data.duration + 500
+                    actualLifetime := now - data.startTime
+                    if (actualLifetime > expectedLifetime) {
+                        if (t.animState == "out")
+                            if (actualLifetime > expectedLifetime + t.animDuration + 500) {
+                                t.Dismiss(true)
+                                if (Toastify.registry.Has(hwnd))
+                                    Toastify.registry.Delete(hwnd)
+                            }
+                            else
+                                t.StartExit()
+                    }
+                } else if (data.duration > 0 && !t)
+                    if (now - data.startTime > data.duration + 1000)
+                        if (Toastify.registry.Has(hwnd))
+                            Toastify.registry.Delete(hwnd)
             }
         }
 
@@ -790,19 +796,7 @@ class Toastify {
             t.OnMouseMove(relX, relY)
         }
     }
-    static __mouseTimerTick(*) {
-        MouseGetPos(&x, &y)
-        for t in Toastify.toasts
-            Toastify.__checkHover(t, x, y)
-        for t in Toastify.exitingToasts
-            Toastify.__checkHover(t, x, y)
-    }
-    static __mouseMoveHook(x, y, prevX, prevY) {
-        for t in Toastify.toasts.Clone()
-            Toastify.__checkHover(t, x, y)
-        for t in Toastify.exitingToasts
-            Toastify.__checkHover(t, x, y)
-    }
+
     static __Click(wParam, lParam, msg, hwnd) {
         for t in Toastify.toasts
             if (t.hwnd == hwnd) {
@@ -870,155 +864,165 @@ class ToastTheme {
     static InitThemes() {
         if (ToastTheme.themes.Count > 0)
             return
+
+        ; ═══════════════════════════════════════════════════════════════
+        ; DARK THEMES — saturación alta, sombras más fuertes, acentos vivos
+        ; ═══════════════════════════════════════════════════════════════
+
         ToastTheme.Register("error", {
             bg1: 0xEE2D1517, bg2: 0xEE1A0D10,
-            fg: 0xFFFCA5A5, accent: 0xFFEF4444,
-            shadow: 0x66EF4444, progress: 0xFFDC2626
-        })
-        ToastTheme.Register("error-light", {
-            bg1: 0xFFFEF2F2, bg2: 0xFFFEE2E2,
-            fg: 0xFF991B1B, accent: 0xFFDC2626,
-            shadow: 0x22DC2626, progress: 0xFFEF4444
+            fg: 0xFFFECACA, accent: 0xFFF87171,
+            shadow: 0x77EF4444, progress: 0xFFEF4444
         })
         ToastTheme.Register("warning", {
             bg1: 0xEE2D1B0E, bg2: 0xEE1A1008,
-            fg: 0xFFFCD34D, accent: 0xFFF97316,
-            shadow: 0x66F97316, progress: 0xFFEA580C
-        })
-        ToastTheme.Register("warning-light", {
-            bg1: 0xFFFFFBEB, bg2: 0xFFFEF3C7,
-            fg: 0xFF92400E, accent: 0xFFD97706,
-            shadow: 0x22D97706, progress: 0xFFF59E0B
+            fg: 0xFFFEF3C7, accent: 0xFFFB923C,
+            shadow: 0x77F97316, progress: 0xFFEA580C
         })
         ToastTheme.Register("success", {
             bg1: 0xEE0A2312, bg2: 0xEE06140B,
-            fg: 0xFF6EE7B7, accent: 0xFF10B981,
-            shadow: 0x6610B981, progress: 0xFF059669
-        })
-        ToastTheme.Register("success-light", {
-            bg1: 0xFFF0FDF4, bg2: 0xFFDCFCE7,
-            fg: 0xFF065F46, accent: 0xFF059669,
-            shadow: 0x22059669, progress: 0xFF10B981
+            fg: 0xFFA7F3D0, accent: 0xFF34D399,
+            shadow: 0x7710B981, progress: 0xFF059669
         })
         ToastTheme.Register("info", {
             bg1: 0xEE0F2035, bg2: 0xEE0A1525,
-            fg: 0xFF93C5FD, accent: 0xFF3B82F6,
-            shadow: 0x663B82F6, progress: 0xFF2563EB
-        })
-        ToastTheme.Register("info-light", {
-            bg1: 0xFFEFF6FF, bg2: 0xFFDBEAFE,
-            fg: 0xFF1E40AF, accent: 0xFF2563EB,
-            shadow: 0x222563EB, progress: 0xFF3B82F6
+            fg: 0xFFBFDBFE, accent: 0xFF60A5FA,
+            shadow: 0x773B82F6, progress: 0xFF2563EB
         })
         ToastTheme.Register("dark", {
-            bg1: 0xEE1F2937, bg2: 0xEE111827,
-            fg: 0xFFF9FAFB, accent: 0xFF60A5FA,
-            shadow: 0x66000000, progress: 0xFF3B82F6
-        })
-        ToastTheme.Register("light", {
-            bg1: 0xFFFFFFFF, bg2: 0xFFF8F9FA,
-            fg: 0xFF1F2937, accent: 0xFF3B82F6,
-            shadow: 0x33000000, progress: 0xFF3B82F6
+            bg1: 0xEE1F2937, bg2: 0xEE0F172A,
+            fg: 0xFFF9FAFB, accent: 0xFF818CF8,
+            shadow: 0x77000000, progress: 0xFF6366F1
         })
         ToastTheme.Register("midnight", {
             bg1: 0xEE0F172A, bg2: 0xEE1E293B,
             fg: 0xFFE2E8F0, accent: 0xFF38BDF8,
-            shadow: 0x660F172A, progress: 0xFF0EA5E9
-        })
-        ToastTheme.Register("midnight-light", {
-            bg1: 0xFFE0F2FE, bg2: 0xFFBAE6FD,
-            fg: 0xFF0369A1, accent: 0xFF0284C7,
-            shadow: 0x220369A1, progress: 0xFF0EA5E9
+            shadow: 0x770F172A, progress: 0xFF0EA5E9
         })
         ToastTheme.Register("forest", {
             bg1: 0xEE052E16, bg2: 0xEE064E3B,
-            fg: 0xFFD1FAE5, accent: 0xFF34D399,
-            shadow: 0x66064E3B, progress: 0xFF10B981
-        })
-        ToastTheme.Register("forest-light", {
-            bg1: 0xFFECFDF5, bg2: 0xFFD1FAE5,
-            fg: 0xFF065F46, accent: 0xFF059669,
-            shadow: 0x22065F46, progress: 0xFF10B981
+            fg: 0xFFA7F3D0, accent: 0xFF34D399,
+            shadow: 0x77064E3B, progress: 0xFF10B981
         })
         ToastTheme.Register("neon", {
             bg1: 0xEE0F0518, bg2: 0xEE1A0B2E,
-            fg: 0xFFE9D5FF, accent: 0xFFD946EF,
-            shadow: 0x88D946EF, progress: 0xFFC026D3
-        })
-        ToastTheme.Register("neon-light", {
-            bg1: 0xFFFDF5FF, bg2: 0xFFF3E8FF,
-            fg: 0xFF6B21A8, accent: 0xFF9333EA,
-            shadow: 0x229333EA, progress: 0xFFA855F7
+            fg: 0xFFF5D0FE, accent: 0xFFE879F9,
+            shadow: 0x99D946EF, progress: 0xFFC026D3
         })
         ToastTheme.Register("vapor", {
             bg1: 0xEE10002B, bg2: 0xEE240046,
-            fg: 0xFFE0AAFF, accent: 0xFF00FFFF,
-            shadow: 0x6600FFFF, progress: 0xFF9D4EDD
-        })
-        ToastTheme.Register("vapor-light", {
-            bg1: 0xFFFFF0F5, bg2: 0xFFE0F7FA,
-            fg: 0xFF5D3FD3, accent: 0xFF00CED1,
-            shadow: 0x2200CED1, progress: 0xFFDA70D6
+            fg: 0xFFE0AAFF, accent: 0xFF22D3EE,
+            shadow: 0x7700FFFF, progress: 0xFFE879F9
         })
         ToastTheme.Register("cyberpunk", {
-            bg1: 0xEE000000, bg2: 0xEE050505,
+            bg1: 0xEE000000, bg2: 0xEE0A0A0A,
             fg: 0xFFFCEE0A, accent: 0xFF00F0FF,
-            shadow: 0x66FCEE0A, progress: 0xFFFF003C
-        })
-        ToastTheme.Register("cyberpunk-light", {
-            bg1: 0xFFFCEE0A, bg2: 0xFFFFF566,
-            fg: 0xFF000000, accent: 0xFF000000,
-            shadow: 0x44000000, progress: 0xFF000000
+            shadow: 0x88FCEE0A, progress: 0xFFFF003C
         })
         ToastTheme.Register("retro", {
-            bg1: 0xEE000000, bg2: 0xEE000000,
+            bg1: 0xEE0A0A0A, bg2: 0xEE000000,
             fg: 0xFF33FF00, accent: 0xFF33FF00,
-            shadow: 0x0033FF00, progress: 0xFF33FF00
-        })
-        ToastTheme.Register("retro-light", {
-            bg1: 0xFFF4E4BC, bg2: 0xFFE6D6AC,
-            fg: 0xFF4B3621, accent: 0xFF6F4E37,
-            shadow: 0x224B3621, progress: 0xFF8B4513
+            shadow: 0x4433FF00, progress: 0xFF33FF00
         })
         ToastTheme.Register("glass", {
-            bg1: 0xAA1F2937, bg2: 0xAA111827,
-            fg: 0xFFFFFFFF, accent: 0x88FFFFFF,
-            shadow: 0x22000000, progress: 0xAAFFFFFF
-        })
-        ToastTheme.Register("glass-light", {
-            bg1: 0xAAFFFFFF, bg2: 0xAAF8F9FA,
-            fg: 0xFF000000, accent: 0x88000000,
-            shadow: 0x11000000, progress: 0xAA000000
+            bg1: 0xCC1F2937, bg2: 0xCC111827,
+            fg: 0xFFFFFFFF, accent: 0xCCFFFFFF,
+            shadow: 0x44000000, progress: 0xCCFFFFFF
         })
         ToastTheme.Register("minimal", {
-            bg1: 0xFF000000, bg2: 0xFF000000,
+            bg1: 0xFF0A0A0A, bg2: 0xFF000000,
             fg: 0xFFFFFFFF, accent: 0xFFFFFFFF,
-            shadow: 0x00000000, progress: 0xFF888888
-        })
-        ToastTheme.Register("minimal-light", {
-            bg1: 0xFFFFFFFF, bg2: 0xFFFFFFFF,
-            fg: 0xFF000000, accent: 0xFF000000,
-            shadow: 0x22000000, progress: 0xFF888888
+            shadow: 0x33000000, progress: 0xFFAAAAAA
         })
         ToastTheme.Register("pastel", {
-            bg1: 0xEE2D2D2D, bg2: 0xEE252525,
-            fg: 0xFFFFD1DC, accent: 0xFFAEC6CF,
-            shadow: 0x44000000, progress: 0xFFB39EB5
-        })
-        ToastTheme.Register("pastel-light", {
-            bg1: 0xFFFFF9FB, bg2: 0xFFFDF0F5,
-            fg: 0xFF6B5B95, accent: 0xFFFFB347,
-            shadow: 0x22000000, progress: 0xFFFF6961
+            bg1: 0xEE1F1F23, bg2: 0xEE18181B,
+            fg: 0xFFFFD1DC, accent: 0xFFFB7185,
+            shadow: 0x55000000, progress: 0xFFFB7185
         })
         ToastTheme.Register("flat", {
-            bg1: 0xFF2C3E50, bg2: 0xFF2C3E50,
-            fg: 0xFFECF0F1, accent: 0xFFBDC3C7,
-            shadow: 0x00000000, progress: 0xFF95A5A6
+            bg1: 0xFF1E293B, bg2: 0xFF0F172A,
+            fg: 0xFFF1F5F9, accent: 0xFFCBD5E1,
+            shadow: 0x33000000, progress: 0xFF94A3B8
+        })
+
+        ; ═══════════════════════════════════════════════════════════════
+        ; LIGHT THEMES — más saturación, gradiente visible, contraste AAA
+        ; ═══════════════════════════════════════════════════════════════
+
+        ToastTheme.Register("error-light", {
+            bg1: 0xFFFEE2E2, bg2: 0xFFFCA5A5,
+            fg: 0xFF7F1D1D, accent: 0xFFDC2626,
+            shadow: 0x44DC2626, progress: 0xFFB91C1C
+        })
+        ToastTheme.Register("warning-light", {
+            bg1: 0xFFFEF3C7, bg2: 0xFFFDE68A,
+            fg: 0xFF78350F, accent: 0xFFEA580C,
+            shadow: 0x44EA580C, progress: 0xFFC2410C
+        })
+        ToastTheme.Register("success-light", {
+            bg1: 0xFFDCFCE7, bg2: 0xFFBBF7D0,
+            fg: 0xFF064E3B, accent: 0xFF059669,
+            shadow: 0x44059669, progress: 0xFF047857
+        })
+        ToastTheme.Register("info-light", {
+            bg1: 0xFFDBEAFE, bg2: 0xFFBFDBFE,
+            fg: 0xFF1E3A8A, accent: 0xFF2563EB,
+            shadow: 0x442563EB, progress: 0xFF1D4ED8
+        })
+        ToastTheme.Register("light", {
+            bg1: 0xFFFAFBFC, bg2: 0xFFE2E8F0,
+            fg: 0xFF0F172A, accent: 0xFF6366F1,
+            shadow: 0x44000000, progress: 0xFF4F46E5
+        })
+        ToastTheme.Register("midnight-light", {
+            bg1: 0xFFE0F2FE, bg2: 0xFFBAE6FD,
+            fg: 0xFF0C4A6E, accent: 0xFF0284C7,
+            shadow: 0x440284C7, progress: 0xFF0369A1
+        })
+        ToastTheme.Register("forest-light", {
+            bg1: 0xFFD1FAE5, bg2: 0xFFA7F3D0,
+            fg: 0xFF064E3B, accent: 0xFF059669,
+            shadow: 0x4410B981, progress: 0xFF047857
+        })
+        ToastTheme.Register("neon-light", {
+            bg1: 0xFFFAF5FF, bg2: 0xFFE9D5FF,
+            fg: 0xFF581C87, accent: 0xFFA855F7,
+            shadow: 0x44A855F7, progress: 0xFF9333EA
+        })
+        ToastTheme.Register("vapor-light", {
+            bg1: 0xFFFCE7F3, bg2: 0xFFCFFAFE,
+            fg: 0xFF831843, accent: 0xFF06B6D4,
+            shadow: 0x4406B6D4, progress: 0xFFDB2777
+        })
+        ToastTheme.Register("cyberpunk-light", {
+            bg1: 0xFFFCEE0A, bg2: 0xFFFDD835,
+            fg: 0xFF000000, accent: 0xFFFF003C,
+            shadow: 0x66000000, progress: 0xFF000000
+        })
+        ToastTheme.Register("retro-light", {
+            bg1: 0xFFFBE5C8, bg2: 0xFFE8C896,
+            fg: 0xFF3E2723, accent: 0xFFD2691E,
+            shadow: 0x44D2691E, progress: 0xFFA0522D
+        })
+        ToastTheme.Register("glass-light", {
+            bg1: 0xDDFFFFFF, bg2: 0xDDE2E8F0,
+            fg: 0xFF0F172A, accent: 0xCC6366F1,
+            shadow: 0x33000000, progress: 0xCC6366F1
+        })
+        ToastTheme.Register("minimal-light", {
+            bg1: 0xFFFFFFFF, bg2: 0xFFF1F5F9,
+            fg: 0xFF000000, accent: 0xFF000000,
+            shadow: 0x33000000, progress: 0xFF525252
+        })
+        ToastTheme.Register("pastel-light", {
+            bg1: 0xFFFFE4E6, bg2: 0xFFFFC9D6,
+            fg: 0xFF4A1942, accent: 0xFFE11D48,
+            shadow: 0x44E11D48, progress: 0xFFBE123C
         })
         ToastTheme.Register("flat-light", {
-            bg1: 0xFFECF0F1, bg2: 0xFFECF0F1,
-            fg: 0xFF2C3E50, accent: 0xFF95A5A6,
-            shadow: 0x00000000, progress: 0xFF7F8C8D
+            bg1: 0xFFF1F5F9, bg2: 0xFFCBD5E1,
+            fg: 0xFF0F172A, accent: 0xFF475569,
+            shadow: 0x33000000, progress: 0xFF1E293B
         })
     }
 
@@ -1088,6 +1092,9 @@ class ToastConfig {
     animEntrance := "auto"
     repoDuration := 300
     renderQuality := "High"
+
+    rotationDegree := 10
+
 }
 
 
@@ -1115,12 +1122,19 @@ class Toast {
     exitStartY := 0
     static _cfgKeys := ["width", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
         "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "animEasing",
-        "animStyle", "animEntrance", "renderQuality", "repoDuration"]
+        "animStyle", "animEntrance", "renderQuality", "repoDuration", "rotationDegree"]
     static _styleKeys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "renderQuality"]
+        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "renderQuality",
+        "rotationDegree"]
     pBitmapCache := 0
     GCache := 0
     cacheDirty := true
+    ; ── Fix #4: cache de texto (se renderiza una sola vez) ──
+    _textRendered := false
+    _textRenderedTheme := ""
+    _buttonClickRegions := []
+    _textBitmap := 0      ; bitmap separado donde se rasteriza texto + botones (Fix bug #4)
+    _GText := 0           ; graphics context del _textBitmap
     targetX := 0
     targetY := 0
     currentX := 0
@@ -1140,7 +1154,7 @@ class Toast {
     animEntrance := "auto"
     opacity := 1.0
     scale := 1.0
-    rotation := 0.0
+    rotation := 90
     resolvedEntrance := "right"
     _hasSlide := false
     _hasFade := false
@@ -1176,6 +1190,7 @@ class Toast {
     borderRadius := 18
     borderWidth := 0
     renderQuality := "High"
+    rotationDegree := 10
     _baseOpacity := 1.0
     _windowShown := false
     _initialized := false
@@ -1263,9 +1278,30 @@ class Toast {
     }
 
     __initThemeCache(pal) {
-        this._bgBrush := 0      ; se crea en drawCache con el gradiente actual
-        this._closePen := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpi)
-        this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpi)
+        ; Cachea TODOS los objetos GDI+ que __drawCache / DrawCloseButton
+        ; creaban y destruían en cada redraw.
+
+        ; 1) Gradiente lineal del fondo (depende de width/height + paleta)
+        this._bgBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
+        this._bgBrushTheme := this.theme
+
+        ; 2) Halo circular del botón close en hover (constante)
+        this._closeHoverBrush := Gdip_BrushCreateSolid(0x33FFFFFF)
+
+        ; 3) Dos pens del aspa del close: normal + hover (constantes)
+        ;    OJO: usar dpiFactor (1.0), no dpi (96). dpiFactor es el factor de escala real.
+        this._closePenNormal := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpiFactor)
+        this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpiFactor)
+
+        ; 4) Border custom (solo si borderWidth > 0)
+        if (this.borderWidth > 0) {
+            this._customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
+            this._customBorderTheme := this.theme
+        } else {
+            this._customBorderPen := 0
+            this._customBorderTheme := ""
+        }
+
         this._btnRoundR := 6 * this.dpi
     }
     _applyDpi() {
@@ -1326,9 +1362,11 @@ class Toast {
 
         this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
         this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
-
         this.__applyRenderQuality(this.G, false)
         this.__applyRenderQuality(this.GCache, true)
+
+        ; Cachea brushes/pens del tema (se reutilizan en cada __drawCache)
+        this.__initThemeCache(ToastTheme.palette(this.theme))
 
         Toastify.registry[this.hwnd] := {
             startTime: A_TickCount,
@@ -1351,14 +1389,11 @@ class Toast {
         this.clickRegions := []
         Gdip_GraphicsClear(this.GCache)
         Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius)
-        pBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
-        Gdip_FillRoundedRectangle(this.GCache, pBrush, 0, 0, this.width, this.height, this.borderRadius)
-        Gdip_DeleteBrush(pBrush)
-        if (this.borderWidth > 0) {
-            customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
-            Gdip_DrawRoundedRectangle(this.GCache, customBorderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
-            Gdip_DeletePen(customBorderPen)
-        } else
+        ; Brush de gradiente cacheado en __initThemeCache
+        Gdip_FillRoundedRectangle(this.GCache, this._bgBrush, 0, 0, this.width, this.height, this.borderRadius)
+        if (this.borderWidth > 0)
+            Gdip_DrawRoundedRectangle(this.GCache, this._customBorderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
+        else
             Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
 
         iconX := this.paddingX
@@ -1369,14 +1404,45 @@ class Toast {
             this.DrawIcon(iconX, iconY, iconSize, this.icon, pal)
             textStartX := iconX + iconSize + 12 * d
         }
+        font := this.fontName
         if (this.showClose)
             this.DrawCloseButton(pal)
 
-        font := this.fontName
+        ; ── Texto (título + body + botones): se rasteriza UNA SOLA VEZ sobre _textBitmap ──
+        ; Luego se blitea sobre GCache cada frame (es un Gdip_DrawImage, barato).
+        ; Así GCache puede vaciarse libremente en cada __drawCache sin perder el texto.
+        if (!this._textRendered || this._textRenderedTheme != this.theme) {
+            this.__renderTextAndButtons(pal, font, d, textStartX)
+            this._textRendered := true
+            this._textRenderedTheme := this.theme
+        }
+        ; SIEMPRE bliteamos el bitmap de texto (preserva el texto entre frames).
+        if (this._textBitmap)
+            Gdip_DrawImage(this.GCache, this._textBitmap, 0, 0, this.width, this.height, 0, 0, this.width, this.height)
+        ; Re-aprovecha click-regions de los botones cacheadas
+        if (this._textRendered)
+            for r in this._buttonClickRegions
+                this.clickRegions.Push(r)
+
+        if (this.showProgress && this.duration > 0)
+            this.DrawProgressBar(pal)
+    }
+
+    __renderTextAndButtons(pal, font, d, textStartX) {
+        ; ── Lazy init del bitmap de texto (separado del GCache) ──
+        ; Se rasteriza UNA sola vez y luego se blitea sobre GCache en cada __drawCache.
+        if (!this._textBitmap) {
+            this._textBitmap := Gdip_CreateBitmap(this.width, this.height)
+            this._GText := Gdip_GraphicsFromImage(this._textBitmap)
+            this.__applyRenderQuality(this._GText, true)
+        }
+        Gdip_GraphicsClear(this._textBitmap, 0x00000000)
+
         titleWidth := this.width - textStartX - (this.showClose ? 40 * d : this.paddingX)
+
         if (this.title != "") {
             titleOpts := "x" textStartX " y" this.paddingY " w" titleWidth " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeTitle " " this.fontWeightTitle
-            Gdip_TextToGraphics(this.GCache, this.title, titleOpts, font, this.width, this.height)
+            Gdip_TextToGraphics(this._GText, this.title, titleOpts, font, this.width, this.height)
         }
         if (this.body != "") {
             bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4 * d) : this.paddingY
@@ -1387,25 +1453,25 @@ class Toast {
                 availableHeight -= 12 * d
             bodyHeight := Max(20 * d, availableHeight)
             bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeBody " " this.fontWeightBody
-            Gdip_TextToGraphics(this.GCache, this.body, bodyOpts, font, this.width, this.height)
+            Gdip_TextToGraphics(this._GText, this.body, bodyOpts, font, this.width, this.height)
         }
+
+        this._buttonClickRegions := []
         if (this.actions.Length) {
             btnW := Round((this.width - 32 * d - (this.actions.Length - 1) * 8 * d) / this.actions.Length)
             y := this.height - (this.showProgress ? 50 * d : 40 * d)
             x := 16 * d
             for idx, act in this.actions {
                 rectX := x, rectY := y, rectW := btnW, rectH := 28 * d
-
-                Gdip_FillRoundedRectangle(this.GCache, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
-                Gdip_DrawRoundedRectangle(this.GCache, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
+                ; Los botones se dibujan en el _textBitmap (parte del contenido estático)
+                Gdip_FillRoundedRectangle(this._GText, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
+                Gdip_DrawRoundedRectangle(this._GText, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
                 txtOpts := "x" (rectX + 10 * d) " y" (rectY + 6 * d) " w" (rectW - 20 * d) " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
-                Gdip_TextToGraphics(this.GCache, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
-                this.clickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
+                Gdip_TextToGraphics(this._GText, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
+                this._buttonClickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
                 x += btnW + 8 * d
             }
         }
-        if (this.showProgress && this.duration > 0)
-            this.DrawProgressBar(pal)
     }
 
     __applyRenderQuality(G, isCache := false) {
@@ -1484,8 +1550,10 @@ class Toast {
     }
 
     UpdateWindow(x, y, alpha := -1) {
-        if (alpha = -1)
+        if (alpha = -1) {
             alpha := Floor(this.opacity * 255)
+            alpha := Max(0, Min(255, alpha))
+        }
         if (!this.hwnd)
             return
         if (!DllCall("IsWindow", "ptr", this.hwnd))
@@ -1543,16 +1611,13 @@ class Toast {
             type: "close"
         })
         if (this.closeHovered) {
-            pBrushHover := Gdip_BrushCreateSolid(0x33FFFFFF)
-            Gdip_FillEllipse(this.GCache, pBrushHover, closeX - 2 * d, closeY - 2 * d, closeSize + 4 * d, closeSize + 4 * d)
-            Gdip_DeleteBrush(pBrushHover)
-        }
-        color := this.closeHovered ? 0xFFFFFFFF : 0xAAFFFFFF
-        pPen := Gdip_CreatePen(color, 2 * d)
+            Gdip_FillEllipse(this.GCache, this._closeHoverBrush, closeX - 2 * d, closeY - 2 * d, closeSize + 4 * d, closeSize + 4 * d)
+            pPen := this._closePenHover
+        } else
+            pPen := this._closePenNormal
         offset := 6 * d
         Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY + closeSize - offset)
         Gdip_DrawLine(this.GCache, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY + closeSize - offset)
-        Gdip_DeletePen(pPen)
     }
 
     DrawProgressBar(pal) {
@@ -1581,7 +1646,7 @@ class Toast {
         this._hasRotate := this.HasAnim("rotate")
         this.opacity := 1.0
         this.scale := 1.0
-        this.rotation := 0.0
+        ; this.rotation := 0.0
         entrance := this.animEntrance
         if (entrance == "auto") {
             if (this.position == "top-right" || this.position == "bottom-right")
@@ -1598,9 +1663,9 @@ class Toast {
             this.opacity := 0.0
         if (this._hasZoom)
             this.scale := 0.0
-        if (this._hasRotate) {
-            this.rotation := -90.0
-            diag := Sqrt(this.width ** 2 + this.height ** 2)
+        if (this._hasRotate || this._hasZoom) {
+            safetyFactor := 1.15
+            diag := Sqrt(this.width ** 2 + this.height ** 2) * safetyFactor
             this.ResizeBuffer(Ceil(diag), Ceil(diag))
         }
         startX := this.targetX
@@ -1677,29 +1742,32 @@ class Toast {
         }
         this.opacity := this._hasFade ? 0 : this._baseOpacity
         this.scale := this._hasZoom ? 0.5 : 1
-        this.rotation := this._hasRotate ? 10 : 0
+        this.rotation := this._hasRotate ? this.rotationDegree : 0
         this.animState := "in"
         this.animStartTime := A_TickCount
         this._initialized := true
     }
     Tick() {
         now := A_TickCount
-        if (this.repoActive) {
+
+        ; ── 1) Repo animation: corre INDEPENDIENTE del estado ──
+        ; Antes hacía return aquí → SALTEABA el progreso en "visible" → congelamiento + salto.
+        ; Ahora solo actualiza currentX/Y; el código de estado (in/out/visible) corre después.
+        repoWasActive := this.repoActive
+        if (repoWasActive) {
             elapsed := now - this.repoStartTime
-            progress := Min(1.0, elapsed / Max(1, this.repoDuration))
-            eased := ToastEasing.getEasing("easeOutCubic", progress)
+            rp := Min(1.0, elapsed / Max(1, this.repoDuration))
+            eased := ToastEasing.getEasing("easeOutCubic", rp)
             this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
             this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
-            if (progress >= 1.0) {
+            if (rp >= 1.0) {
                 this.repoActive := false
                 this.currentX := this.repoTargetX
                 this.currentY := this.repoTargetY
-                ; ── ya NO va el bloque de reanudación aquí ──
             }
-            this.Draw()
-            return
         }
 
+        ; ── 2) Animación de entrada ──
         if (this.animState == "in") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
@@ -1713,7 +1781,7 @@ class Toast {
             }
             this.opacity := this._hasFade ? (eased * this._baseOpacity) : this._baseOpacity
             this.scale := this._hasZoom ? (0.5 + 0.5 * eased) : 1.0
-            this.rotation := this._hasRotate ? ((1 - eased) * 10 * (this.resolvedEntrance == "left" ? -1 : 1)) : 0
+            this.rotation := this._hasRotate ? ((1 - eased) * this.rotationDegree * (this.resolvedEntrance == "left" ? -1 : 1)) : 0
             if (progress >= 1.0) {
                 this.animState := "visible"
                 this.currentX := this.targetX
@@ -1725,14 +1793,12 @@ class Toast {
                 this.repoActive := false
                 if (this._hasRotate && (this.bufferWidth != this.width || this.bufferHeight != this.height))
                     this.ResizeBuffer(this.width, this.height)
-
-                ; ── NUEVO: reanudar toasts pausados por nuestra entrada ──
-
             }
             this.Draw()
             return
         }
 
+        ; ── 3) Animación de salida ──
         if (this.animState == "out") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
@@ -1743,11 +1809,14 @@ class Toast {
             }
             this.opacity := this._hasFade ? ((1.0 - eased) * this._baseOpacity) : this._baseOpacity
             this.scale := this._hasZoom ? (1.0 - 0.5 * eased) : 1.0
-            this.rotation := this._hasRotate ? (eased * 10 * (this.resolvedEntrance == "left" ? 1 : -1)) : 0
+            this.rotation := this._hasRotate ? (eased * this.rotationDegree * (this.resolvedEntrance == "left" ? 1 : -1)) : 0
             this.Draw()
             return
         }
+
+        ; ── 4) Estado visible: progreso + posible draw por repo ──
         if (this.animState == "visible") {
+            drew := false
             if (this.showProgress && this.duration > 0 && !this.progressPaused) {
                 elapsed := now - this.progressStartTime
                 this.progress := Min(1.0, elapsed / this.duration)
@@ -1755,14 +1824,8 @@ class Toast {
                 if (diff > 0.005) {
                     this.cacheDirty := true
                     this.lastProgress := this.progress
-                    ; si el salto es grande (pausa larga), no dibujar intermedio
-                    if (diff < 0.15)
-                        this.Draw()
-                    else {
-                        ; salto grande: actualizar sin animar suavemente
-                        this.lastProgress := this.progress
-                        this.Draw()
-                    }
+                    this.Draw()
+                    drew := true
                 }
                 if (this.progress >= 1.0) {
                     if (this.autoDismiss) {
@@ -1773,12 +1836,20 @@ class Toast {
                     }
                 }
             }
+            ; Si la repo acaba de mover la posición este tick, dibuja para reflejarlo.
+            ; (Si el progreso ya disparó Draw, no hace falta otro.)
+            if (!drew && repoWasActive)
+                this.Draw()
         }
     }
     StartExit() {
         if (this.animState == "out")
             return
-
+        if ((this._hasRotate || this._hasZoom) && this.bufferWidth == this.width && this.bufferHeight == this.height) {
+            safetyFactor := 1.15
+            diag := Sqrt(this.width ** 2 + this.height ** 2) * safetyFactor
+            this.ResizeBuffer(Ceil(diag), Ceil(diag))
+        }
         wa := ToastDPI.WorkArea(this.currentX, this.currentY)
         offsetX := (this.bufferWidth - this.width) // 2
         offsetY := (this.bufferHeight - this.height) // 2
@@ -1942,9 +2013,17 @@ class Toast {
             Gdip_DeleteGraphics(this.GCache)
             this.GCache := 0
         }
+        if (this._GText) {
+            Gdip_DeleteGraphics(this._GText)
+            this._GText := 0
+        }
         if (this.pBitmapCache) {
             Gdip_DisposeImage(this.pBitmapCache)
             this.pBitmapCache := 0
+        }
+        if (this._textBitmap) {
+            Gdip_DisposeImage(this._textBitmap)
+            this._textBitmap := 0
         }
         if (this.G) {
             Gdip_DeleteGraphics(this.G)
@@ -1960,10 +2039,27 @@ class Toast {
             this.hdc := 0
         }
 
-        ; if (this._closePen)
-        ;     Gdip_DeletePen(this._closePen)
-        ; if (this._closePenHover)
-        ;     Gdip_DeletePen(this._closePenHover)
+        ; Limpia brushes/pens cacheados
+        if (this._bgBrush) {
+            Gdip_DeleteBrush(this._bgBrush)
+            this._bgBrush := 0
+        }
+        if (this._closeHoverBrush) {
+            Gdip_DeleteBrush(this._closeHoverBrush)
+            this._closeHoverBrush := 0
+        }
+        if (this._closePenNormal) {
+            Gdip_DeletePen(this._closePenNormal)
+            this._closePenNormal := 0
+        }
+        if (this._closePenHover) {
+            Gdip_DeletePen(this._closePenHover)
+            this._closePenHover := 0
+        }
+        if (this._customBorderPen) {
+            Gdip_DeletePen(this._customBorderPen)
+            this._customBorderPen := 0
+        }
         hwnd := this.hwnd
         this.hwnd := 0
         this.gui := 0
