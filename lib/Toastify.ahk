@@ -546,10 +546,12 @@ static Start(theme := "dark", position := "top-right") {
             waSCX := wa.x + wa.w // 2
             waSCY := wa.y + wa.h // 2
 
-            _getX(t) {
-                if (InStr(pos, "right") || pos = "right")
+            _getX(t, p) {
+                ; p explícito: closures no capturan variables de bucle `for`
+                ; por referencia → snapshot del primer grupo = X equivocada.
+                if (InStr(p, "right") || p = "right")
                     return wa.x + wa.w - marginX - t.width
-                if (InStr(pos, "left") || pos = "left")
+                if (InStr(p, "left") || p = "left")
                     return wa.x + marginX
                 return waSCX - t.width // 2
             }
@@ -568,7 +570,7 @@ static Start(theme := "dark", position := "top-right") {
                 for idx, t in group {
                     if (cursor + t.height > wa.y + wa.h - marginY)
                         break   ; simplemente no asignar posición a los que no caben
-                    targets.Push({ x: _getX(t), y: cursor, gi: idx })
+                    targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
                     cursor += t.height + spacing
                 }
             } else if (isBottom) {
@@ -581,7 +583,7 @@ static Start(theme := "dark", position := "top-right") {
                         cursor += t.height  ; revertir
                         break
                     }
-                    targets.Push({ x: _getX(t), y: cursor, gi: idx })
+                    targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
                     cursor -= spacing
                 }
             } else {
@@ -593,7 +595,7 @@ static Start(theme := "dark", position := "top-right") {
                 for idx, t in group {
                     if (cursor + t.height > wa.y + wa.h - marginY)
                         break   ; truncar overflow también en midV
-                    targets.Push({ x: _getX(t), y: cursor, gi: idx })
+                    targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
                     cursor += t.height + spacing
                 }
             }
@@ -702,6 +704,38 @@ static Start(theme := "dark", position := "top-right") {
                 if (Toastify.registry.Has(hwnd))
                     Toastify.registry.Delete(hwnd)
 
+            ; ── Seguridad hover: WM_MOUSELEAVE en layered windows es poco
+            ;    confiable → hovered puede quedar true y opacidad en 100%.
+            ;    Check de rectángulo (solo si algo está hovered). NO usar
+            ;    WindowFromPoint: no devuelve layered windows de forma
+            ;    fiable y limpiaba hover con el cursor encima.
+            anyHovered := false
+            for t in Toastify.toasts
+                if (t.hovered) {
+                    anyHovered := true
+                    break
+                }
+            if (!anyHovered)
+                for t in Toastify.exitingToasts
+                    if (t.hovered) {
+                        anyHovered := true
+                        break
+                    }
+            if (anyHovered) {
+                pt := Buffer(8, 0)
+                DllCall("GetCursorPos", "ptr", pt)
+                mx := NumGet(pt, 0, "int")
+                my := NumGet(pt, 4, "int")
+                for t in Toastify.toasts
+                    if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
+                        && my >= t.currentY && my <= t.currentY + t.height))
+                        t.OnMouseLeave()
+                for t in Toastify.exitingToasts
+                    if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
+                        && my >= t.currentY && my <= t.currentY + t.height))
+                        t.OnMouseLeave()
+            }
+
             if (anyIconicNow) {
                 ; Restaurar ventanas minimizadas con SetWindowPos
                 ; (SW_SHOWNOACTIVATE=4 NO restaura ventanas minimizadas)
@@ -765,8 +799,7 @@ static Start(theme := "dark", position := "top-right") {
             t := Toastify.exitingToasts[i]
             t.Tick()
             if (t.animState == "out" && (A_TickCount - t.animStartTime > t.animDuration)) {
-                t.Dismiss(true)
-                Toastify.__reflow(true)
+                t.Dismiss(true)   ; Dismiss ya llama __reflow
             } else
                 i++
         }
@@ -894,12 +927,12 @@ class ToastTheme {
         ToastTheme.Register("glass", {
             bg1: 0xCC1F2937, bg2: 0xCC111827,
             fg: 0xFFFFFFFF, accent: 0xCCFFFFFF,
-            shadow: 0x44000000, progress: 0xCCFFFFFF
+            shadow: 0x44000000, progress: 0xFFFFFFFF, progressBg: 0x40FFFFFF
         })
         ToastTheme.Register("minimal", {
             bg1: 0xFF0A0A0A, bg2: 0xFF000000,
             fg: 0xFFFFFFFF, accent: 0xFFFFFFFF,
-            shadow: 0x33000000, progress: 0xFFAAAAAA
+            shadow: 0x33000000, progress: 0xFFAAAAAA, progressBg: 0x40FFFFFF
         })
         ToastTheme.Register("pastel", {
             bg1: 0xEE1F1F23, bg2: 0xEE18181B,
@@ -909,7 +942,7 @@ class ToastTheme {
         ToastTheme.Register("flat", {
             bg1: 0xFF1E293B, bg2: 0xFF0F172A,
             fg: 0xFFF1F5F9, accent: 0xFFCBD5E1,
-            shadow: 0x33000000, progress: 0xFF94A3B8
+            shadow: 0x33000000, progress: 0xFF94A3B8, progressBg: 0x40FFFFFF
         })
 
         ; ═══════════════════════════════════════════════════════════════
@@ -964,7 +997,7 @@ class ToastTheme {
         ToastTheme.Register("cyberpunk-light", {
             bg1: 0xFFFCEE0A, bg2: 0xFFFDD835,
             fg: 0xFF000000, accent: 0xFFFF003C,
-            shadow: 0x66000000, progress: 0xFF000000
+            shadow: 0x66000000, progress: 0xFF000000, progressBg: 0x66FFFFFF
         })
         ToastTheme.Register("retro-light", {
             bg1: 0xFFFBE5C8, bg2: 0xFFE8C896,
@@ -979,7 +1012,7 @@ class ToastTheme {
         ToastTheme.Register("minimal-light", {
             bg1: 0xFFFFFFFF, bg2: 0xFFF1F5F9,
             fg: 0xFF000000, accent: 0xFF000000,
-            shadow: 0x33000000, progress: 0xFF525252
+            shadow: 0x33000000, progress: 0xFF525252, progressBg: 0x59000000
         })
         ToastTheme.Register("pastel-light", {
             bg1: 0xFFFFE4E6, bg2: 0xFFFFC9D6,
@@ -1500,18 +1533,59 @@ class Toast {
 
         this._buttonClickRegions := []
         if (this.actions.Length) {
-            btnW := Round((this.width - 32 * d - (this.actions.Length - 1) * 8 * d) / this.actions.Length)
+            ; Contraste del texto del botón: blanco o casi-negro, el que dé
+            ; mejor ratio WCAG contra el accent del tema. (Algunos accent son
+            ; claros: retro/flat/minimal → blanco ilegible.)
+            ar := (pal.accent >> 16) & 0xFF, ag := (pal.accent >> 8) & 0xFF, ab := pal.accent & 0xFF
+            lr := ar / 255, lg := ag / 255, lb := ab / 255
+            lr := lr <= 0.03928 ? lr / 12.92 : ((lr + 0.055) / 1.055) ** 2.4
+            lg := lg <= 0.03928 ? lg / 12.92 : ((lg + 0.055) / 1.055) ** 2.4
+            lb := lb <= 0.03928 ? lb / 12.92 : ((lb + 0.055) / 1.055) ** 2.4
+            La := 0.2126 * lr + 0.7152 * lg + 0.0722 * lb
+            btnFg := (La + 0.05) / 0.05 > 1.05 / (La + 0.05) ? 0xFF0F172A : 0xFFFFFFFF
+            ; Botones a medida: medir cada etiqueta → ancho por texto, sin wrap.
+            ; Si la fila no entra, se achica la fuente del botón (una pasada).
+            hFam := Gdip_FontFamilyCreate(font)
+            hFmt := Gdip_StringFormatCreate(0x1000)
+            layout := Buffer(16)
+            NumPut("float", 0, layout, 0)
+            NumPut("float", 0, layout, 4)
+            NumPut("float", 10000, layout, 8)
+            NumPut("float", 10000, layout, 12)
+            btnFont := this.fontSizeBody
+            availW := this.width - 32 * d - (this.actions.Length - 1) * 8 * d
+            loop {
+                widths := []
+                total := 0
+                for act in this.actions {
+                    label := act.HasProp("text") ? act.text : act[1]
+                    hFont := Gdip_FontCreate(hFam, btnFont, 1)
+                    ms := Gdip_MeasureString(this._GText, label, hFont, hFmt, &layout)
+                    Gdip_DeleteFont(hFont)
+                    w := Ceil(Number(StrSplit(ms, "|")[3])) + 20 * d
+                    widths.Push(w)
+                    total += w
+                }
+                if (total <= availW || btnFont <= 8)
+                    break
+                btnFont := Max(8, Floor(btnFont * availW / total))
+            }
+            Gdip_DeleteFontFamily(hFam)
+            Gdip_DeleteStringFormat(hFmt)
+            leftover := Max(0, availW - total)
+            share := Floor(leftover / this.actions.Length)
             y := this.height - (this.showProgress ? 50 * d : 40 * d)
             x := 16 * d
             for idx, act in this.actions {
-                rectX := x, rectY := y, rectW := btnW, rectH := 28 * d
+                rectW := widths[idx] + share + (idx = this.actions.Length ? Mod(leftover, this.actions.Length) : 0)
+                rectX := x, rectY := y, rectW := Floor(rectW), rectH := 28 * d
                 ; Los botones se dibujan en el _textBitmap (parte del contenido estático)
                 Gdip_FillRoundedRectangle(this._GText, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
                 Gdip_DrawRoundedRectangle(this._GText, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
-                txtOpts := "x" (rectX + 10 * d) " y" (rectY + 6 * d) " w" (rectW - 20 * d) " cFFFFFFFF r4 s" this.fontSizeBody " Centre Bold"
+                txtOpts := "x" (rectX + 10 * d) " y" (rectY + 6 * d) " w" (rectW - 20 * d) " c" Format("{:x}", btnFg) " r4 s" btnFont " Centre Bold"
                 Gdip_TextToGraphics(this._GText, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
                 this._buttonClickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
-                x += btnW + 8 * d
+                x += rectW + 8 * d
             }
         }
     }
@@ -2017,7 +2091,7 @@ class Toast {
             }
         if (wasCloseHovered != this.closeHovered)
             this.__updateCloseHover()
-        if (!wasHovered && Toastify.hoverPauseEnabled && this.autoDismiss) {
+        if (!wasHovered && Toastify.hoverPauseEnabled && this.autoDismiss && this.duration > 0) {
             this.progressPaused := true
             this.progressPauseTime := A_TickCount
         }
@@ -2026,7 +2100,7 @@ class Toast {
         if (this.hovered) {
             this.hovered := false
             this.closeHovered := false
-            if (this.autoDismiss) {
+            if (this.autoDismiss && this.duration > 0) {
                 if (this.progressPaused) {
                     this.progressPaused := false
                     pausedDuration := A_TickCount - this.progressPauseTime
@@ -2079,6 +2153,9 @@ class Toast {
         if (this.hwnd && Toastify.registry.Has(this.hwnd))
             Toastify.registry.Delete(this.hwnd)
         this.Destroy()
+        ; Todo camino de eliminación (exit loop, watchdog, Dismiss directo)
+        ; pasa por acá → el resto se reordena siempre.
+        Toastify.__reflow(true)
     }
     ResizeBuffer(newW, newH) {
         if (newW == this.bufferWidth && newH == this.bufferHeight)
