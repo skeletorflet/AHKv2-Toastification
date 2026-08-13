@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "branchName": "main",
+  "worktreePath": "C:\\Users\\July\\Documents\\GitHub\\AHKv2-Toastification",
+  "upstream": "origin/main",
+  "mergeBase": "bf58b157cdd7b9f5fff7a84121d937f423ff955e",
+  "firstSeenHead": "bf58b157cdd7b9f5fff7a84121d937f423ff955e",
+  "lastSeenHead": "bf58b157cdd7b9f5fff7a84121d937f423ff955e",
+  "lastAnalyzedHead": "bf58b157cdd7b9f5fff7a84121d937f423ff955e",
+  "stale": false,
+  "staleReason": null,
+  "staleSince": null,
+  "lifecycleEvent": null,
+  "createdAt": "2026-08-13T17:24:58.677Z",
+  "updatedAt": "2026-08-13T17:24:58.677Z"
+}

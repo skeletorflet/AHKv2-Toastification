@@ -1,0 +1,42 @@
+{
+  "files": {
+    "code": [],
+    "document": [
+      "README.md"
+    ],
+    "paper": [],
+    "image": [],
+    "video": []
+  },
+  "total_files": 1,
+  "total_words": 514,
+  "needs_graph": false,
+  "warning": "Corpus is ~514 words - fits in a single context window. You may not need a graph.",
+  "skipped_sensitive": [],
+  "graphifyignore_patterns": 2,
+  "git": {
+    "source_owner": "git",
+    "source_hash": "bf58b157cdd7b9f5fff7a84121d937f423ff955e",
+    "branches": [
+      "main"
+    ],
+    "max_commits": 200,
+    "active_within_days": 30
+  },
+  "scope": {
+    "requested_mode": "auto",
+    "resolved_mode": "committed",
+    "source": "default-auto",
+    "root": ".",
+    "git_root": ".",
+    "head": "bf58b157cdd7b9f5fff7a84121d937f423ff955e",
+    "candidate_count": 9,
+    "included_count": 1,
+    "excluded_untracked_count": 0,
+    "excluded_ignored_count": 0,
+    "excluded_sensitive_count": 0,
+    "missing_committed_count": 0,
+    "warnings": [],
+    "recommendation": "Use --scope all or graphify.yaml inputs.corpus for a knowledge-base folder."
+  }
+}
