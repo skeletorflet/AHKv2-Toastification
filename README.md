@@ -86,6 +86,8 @@ Toastify.Show("Title", "Body", [], {
     showProgress: true,              ; Show progress bar
     permanent: false,                ; Never auto-dismiss
     autoDismiss: true,               ; Allow auto-dismiss when progress completes
+    opacity: 1.0,                    ; Base opacity (0.0-1.0)
+    opacityOnHover: false,           ; Smoothly raise opacity to 100% on hover
     animStyle: ["slide", "fade"],    ; Animation style(s)
     animEasing: "easeOutCubic",      ; Easing curve
     animEntrance: "auto",            ; Entrance direction
@@ -133,7 +135,7 @@ Toastify.RegisterTheme("ocean", {
 
 ## Hover Behavior
 
-Toast timers pause on hover and resume on leave. Close button highlights on hover. Progress bars are live.
+Toast timers pause on hover and resume on leave. Close button highlights on hover. Progress bars are live. With `opacityOnHover: true`, a semi-transparent toast (`opacity: 0.5`) smoothly fades to 100% while hovered and back on leave.
 
 ## Requirements
 
