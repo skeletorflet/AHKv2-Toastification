@@ -186,6 +186,7 @@ class Toastify {
 
     static __wasAnyIconic := false
     static registry := Map()
+    static __destroyCount := 0
     static config := ToastConfig()
     static animStartX := 0
     static animStartY := 0
@@ -305,7 +306,7 @@ class Toastify {
     }
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-            "width", "borderRadius", "iconSize", "paddingX", "paddingY", "repoDuration",
+            "width", "borderRadius", "borderWidth", "iconSize", "paddingX", "paddingY", "repoDuration",
             "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality",
             "rotationDegree"]
 
@@ -332,6 +333,12 @@ static Start(theme := "dark", position := "top-right") {
             OnExit((*) => Toastify.Shutdown())
             OnMessage(0x201, (wParam, lParam, msg, hwnd) =>
                 Toastify.__Click(wParam, lParam, msg, hwnd))
+            ; Hover nativo: WM_MOUSEMOVE + TrackMouseEvent/WM_MOUSELEAVE.
+            ; Windows resuelve z-order: solo el toast realmente arriba recibe mensajes.
+            OnMessage(0x200, (wParam, lParam, msg, hwnd) =>
+                Toastify.__onMouseMove(lParam, hwnd))
+            OnMessage(0x2A3, (wParam, lParam, msg, hwnd) =>
+                Toastify.__onMouseLeave(hwnd))
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
             Toastify.__lastTickTime := A_TickCount
             Toastify.__frameCounter := 0
@@ -349,7 +356,7 @@ static Start(theme := "dark", position := "top-right") {
         Toastify.__active := active
         if (active) {
             DllCall("Winmm.dll\timeBeginPeriod", "UInt", 2)
-            ProcessSetPriority(Toastify.PRIORITY.HIGH)
+            ProcessSetPriority(Toastify.PRIORITY.ABOVE_NORMAL)
             Toastify.__lastTickTime := A_TickCount
             SetTimer(Toastify.__globalTimer, -16)
         } else {
@@ -494,6 +501,7 @@ static Start(theme := "dark", position := "top-right") {
             Toastify.toasts[1].StartExit()
         }
 
+        opts._dpi := dpi   ; DPI del monitor destino para escalar contenido
         t := Toast(title, body, actions, opts)
         Toastify.toasts.Push(t)
         Toastify.__setActive(true)
@@ -551,14 +559,17 @@ static Start(theme := "dark", position := "top-right") {
             availableH := wa.h - marginY * 2
 
             ; ── calcular targets y detectar overflow ────────────────
+            ; Cada target lleva gi = índice ORIGINAL en group; la asignación
+            ; usa esa clave, no posición de array (el reverse+truncado del
+            ; branch bottom rompía ese supuesto → toasts en (0,0)).
             targets := []
 
             if (!isBottom && !isMidV) {
                 cursor := wa.y + marginY
-                for t in group {
+                for idx, t in group {
                     if (cursor + t.height > wa.y + wa.h - marginY)
                         break   ; simplemente no asignar posición a los que no caben
-                    targets.Push({ x: _getX(t), y: cursor })
+                    targets.Push({ x: _getX(t), y: cursor, gi: idx })
                     cursor += t.height + spacing
                 }
             } else if (isBottom) {
@@ -571,30 +582,27 @@ static Start(theme := "dark", position := "top-right") {
                         cursor += t.height  ; revertir
                         break
                     }
-                    targets.Push({ x: _getX(t), y: cursor })
+                    targets.Push({ x: _getX(t), y: cursor, gi: idx })
                     cursor -= spacing
                 }
-                reversed := []
-                loop targets.Length
-                    reversed.Push(targets[targets.Length + 1 - A_Index])
-                targets := reversed
             } else {
                 totalH := 0
                 for t in group
                     totalH += t.height + spacing
                 totalH -= spacing
-                cursor := waSCY - totalH // 2
-                for t in group {
-                    targets.Push({ x: _getX(t), y: cursor })
+                cursor := Max(wa.y + marginY, waSCY - totalH // 2)
+                for idx, t in group {
+                    if (cursor + t.height > wa.y + wa.h - marginY)
+                        break   ; truncar overflow también en midV
+                    targets.Push({ x: _getX(t), y: cursor, gi: idx })
                     cursor += t.height + spacing
                 }
             }
 
-            for idx, t in group {
-                if (idx > targets.Length)
-                    break
-                x := targets[idx].x
-                y := targets[idx].y
+            for target in targets {
+                t := group[target.gi]
+                x := target.x
+                y := target.y
                 t.targetX := x
                 t.targetY := y
 
@@ -653,20 +661,12 @@ static Start(theme := "dark", position := "top-right") {
         ; ── Contador de frames: multiplexa sub-tareas de menor frecuencia ──
         frame := ++Toastify.__frameCounter
 
-        ; ── Mouse hover: cada 2 frames (~30Hz, antes cada 3) ──
-        if (Mod(frame, 2) = 1) {
-            MouseGetPos(&mx, &my)
-            for t in Toastify.toasts
-                Toastify.__checkHover(t, mx, my)
-            for t in Toastify.exitingToasts
-                Toastify.__checkHover(t, mx, my)
-        }
-
         ; ── Cada 6 frames (~10Hz): registry scan + watchdog + iconic restore ──
         if (Mod(frame, 6) = 1) {
             anyIconicNow := false
             iconicHwnds := []
             deadHwnds := []
+            ; Scan + watchdog en UN solo paso (antes 3 loops sobre registry)
             for hwnd, data in Toastify.registry {
                 if (!DllCall("IsWindow", "ptr", hwnd)) {
                     deadHwnds.Push(hwnd)
@@ -676,13 +676,8 @@ static Start(theme := "dark", position := "top-right") {
                     anyIconicNow := true
                     iconicHwnds.Push(hwnd)
                 }
-            }
-            for hwnd in deadHwnds
-                if (Toastify.registry.Has(hwnd))
-                    Toastify.registry.Delete(hwnd)
 
-            ; Watchdog de tiempo de vida
-            for hwnd, data in Toastify.registry {
+                ; Watchdog de tiempo de vida
                 t := (data.HasOwnProp("instance") && data.instance) ? data.instance : 0
                 if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled)
                     continue
@@ -704,6 +699,9 @@ static Start(theme := "dark", position := "top-right") {
                         if (Toastify.registry.Has(hwnd))
                             Toastify.registry.Delete(hwnd)
             }
+            for hwnd in deadHwnds
+                if (Toastify.registry.Has(hwnd))
+                    Toastify.registry.Delete(hwnd)
 
             if (anyIconicNow) {
                 ; Restaurar ventanas minimizadas con SetWindowPos
@@ -747,25 +745,10 @@ static Start(theme := "dark", position := "top-right") {
         }
 
 
-        ; lógica de expiración (liviana)
-        while (Toastify.toasts.Length > Toastify.maxToasts) {
-            if (Toastify.toasts.Length > 0) {
-                t := Toastify.toasts[1]
-                t.StartExit()
-                if (Toastify.toasts.Length > 0 && Toastify.toasts[1] == t) {
-                    Toastify.toasts.RemoveAt(1)
-                    local found := false
-                    for exiting in Toastify.exitingToasts
-                        if (exiting == t) {
-                            found := true
-                            break
-                        }
-                    if (!found)
-                        Toastify.exitingToasts.Push(t)
-                }
-            } else
-                break
-        }
+        ; lógica de expiración (liviana): StartExit ya remueve de toasts y
+        ; lo mueve a exitingToasts; el RemoveAt/re-push era código muerto.
+        while (Toastify.toasts.Length > Toastify.maxToasts)
+            Toastify.toasts[1].StartExit()
 
         toastsToExit := []
         for t in Toastify.toasts {
@@ -795,22 +778,35 @@ static Start(theme := "dark", position := "top-right") {
         }
     }
 
-    static __checkHover(t, x, y) {
-        if (!t.hwnd)
+    static __toastByHwnd(hwnd) {
+        if (Toastify.registry.Has(hwnd))
+            return Toastify.registry[hwnd].instance
+        return 0
+    }
+    static __trackLeave(hwnd) {
+        tr := Buffer(16, 0)
+        NumPut("uint", 16, tr, 0)      ; cbSize
+        NumPut("uint", 2, tr, 4)        ; TME_LEAVE
+        NumPut("ptr", hwnd, tr, 8)
+        DllCall("TrackMouseEvent", "ptr", tr)
+    }
+    static __onMouseMove(lParam, hwnd) {
+        t := Toastify.__toastByHwnd(hwnd)
+        if !t
             return
-        wasInside := t.hovered
-        isInside := (x >= t.currentX && x <= t.currentX + t.width && y >= t.currentY && y <= t.currentY + t.height)
-        if (isInside && !wasInside) {
-            relX := x - t.currentX
-            relY := y - t.currentY
-            t.OnMouseMove(relX, relY)
-        } else if (!isInside && wasInside)
+        Toastify.__trackLeave(hwnd)
+        x := lParam & 0xFFFF
+        y := (lParam >> 16) & 0xFFFF
+        ; Coordenadas cliente = ventana completa; restar offset del buffer
+        ; expandido (rotate/zoom) para que coincidan con clickRegions (0..width).
+        x -= (t.bufferWidth - t.width) // 2
+        y -= (t.bufferHeight - t.height) // 2
+        t.OnMouseMove(x, y)
+    }
+    static __onMouseLeave(hwnd) {
+        t := Toastify.__toastByHwnd(hwnd)
+        if t
             t.OnMouseLeave()
-        else if (isInside) {
-            relX := x - t.currentX
-            relY := y - t.currentY
-            t.OnMouseMove(relX, relY)
-        }
     }
 
     static __Click(wParam, lParam, msg, hwnd) {
@@ -1111,6 +1107,13 @@ class Toast {
     _GProgress := 0
     _progressW := 0
     _progressH := 0
+    ; ── Botón close: bitmap chico propio; el halo de hover NO redibuja
+    ;    el cache completo (gradiente + sombra + texto) ──
+    _closeBitmap := 0
+    _GClose := 0
+    _closeW := 0
+    _closeH := 0
+    _closeHoveredRendered := -1
     ; ── Fix #4: cache de texto (se renderiza una sola vez) ──
     _textRendered := false
     _textRenderedTheme := ""
@@ -1144,6 +1147,7 @@ class Toast {
     _hasRotate := false
     _baseCfg := 0
     dpiFactor := 1.0
+    _dpi := 0
     bufferWidth := 0
     bufferHeight := 0
     progress := 0.0
@@ -1161,18 +1165,6 @@ class Toast {
     autoDismiss := true
     progressCompleteTime := 0
     static progressGracePeriod := 300
-    fontName := "Segoe UI"
-    fontSizeTitle := 16
-    fontSizeBody := 11
-    fontWeightTitle := "Bold"
-    fontWeightBody := "Normal"
-    paddingX := 16
-    paddingY := 14
-    iconSize := 32
-    borderRadius := 18
-    borderWidth := 0
-    renderQuality := "High"
-    rotationDegree := 10
     _baseOpacity := 1.0
     opacityOnHover := false
     _hoverOpacityFrom := 0.0
@@ -1213,6 +1205,8 @@ class Toast {
                     this.onClickCallback := opts.onClick
                 if opts.HasProp("onClose")
                     this.onCloseCallback := opts.onClose
+                if opts.HasProp("_dpi")
+                    this._dpi := opts._dpi
                 if opts.HasProp("opacity")
                     this._baseOpacity := opts.opacity
                 if opts.HasProp("opacityOnHover")
@@ -1293,6 +1287,8 @@ class Toast {
 
     __initThemeCache(pal) {
         this._bgBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
+        if (!this._bgBrush)
+            this._bgBrush := Gdip_BrushCreateSolid(pal.bg1 & 0xFFFFFF)
         this._bgBrushTheme := this.theme
 
         ; 2) Halo circular del botón close en hover (constante)
@@ -1311,28 +1307,29 @@ class Toast {
             this._customBorderPen := 0
             this._customBorderTheme := ""
         }
-
-        this._btnRoundR := 6 * this.dpi
     }
     _applyDpi() {
-        ; AHK64 tiene manifest propio - SetProcessDpiAwarenessContext falla.
-        ; Windows ya maneja el scaling automáticamente para este proceso.
-        ; Nosotros NO debemos escalar: siempre factor 1.0, dpi=96.
-        this.dpi := 96
-        this.dpiFactor := 1.0
+        ; Per-Monitor v2: el OS no virtualiza contenido; __reflow ya posiciona
+        ; en px físicos. El contenido también debe escalar con el DPI real del
+        ; monitor destino (lo calcula __createToast antes de construir).
+        dpi := (this._dpi > 0) ? this._dpi : ToastDPI.Primary()
+        this.dpi := dpi
+        this.dpiFactor := ToastDPI.Factor(dpi)
 
-        p := (pts) => pts   ; sin escala
+        p := (pts) => ToastDPI.Px(pts, dpi)
 
-        this.width := this._baseCfg.width
-        this.height := this._baseCfg.minHeight
-        this.fontSizeTitle := this._baseCfg.fontSizeTitle
-        this.fontSizeBody := this._baseCfg.fontSizeBody
-        this.paddingX := this._baseCfg.paddingX
-        this.paddingY := this._baseCfg.paddingY
-        this.iconSize := this._baseCfg.iconSize
-        this.borderRadius := this._baseCfg.borderRadius
-        this.borderWidth := this._baseCfg.borderWidth
+        this.width := p(this._baseCfg.width)
+        this.height := p(this._baseCfg.minHeight)
+        this.fontSizeTitle := Round(this._baseCfg.fontSizeTitle * this.dpiFactor)
+        this.fontSizeBody := Round(this._baseCfg.fontSizeBody * this.dpiFactor)
+        this.paddingX := p(this._baseCfg.paddingX)
+        this.paddingY := p(this._baseCfg.paddingY)
+        this.iconSize := p(this._baseCfg.iconSize)
+        this.borderRadius := p(this._baseCfg.borderRadius)
+        this.borderWidth := Round(this._baseCfg.borderWidth * this.dpiFactor)
         this.repoDuration := this._baseCfg.repoDuration
+        ; ponytail: mover el toast a otro monitor con distinto % no lo re-escala;
+        ; rescale en reflow si llega a importar.
     }
     _saveBaseCfg() {
         ; Guarda una copia de los valores de diseño a 96 DPI
@@ -1419,8 +1416,12 @@ class Toast {
             textStartX := iconX + iconSize + 12 * d
         }
         font := this.fontName
-        if (this.showClose)
-            this.DrawCloseButton(pal)
+        if (this.showClose) {
+            this.__ensureCloseBitmap()
+            this.__renderCloseBitmap(pal)
+            this.__blitClose()
+            this.__pushCloseRegion()
+        }
 
         ; ── Texto (título + body + botones): se rasteriza UNA SOLA VEZ sobre _textBitmap ──
         ; Luego se blitea sobre GCache cada frame (es un Gdip_DrawImage, barato).
@@ -1450,6 +1451,8 @@ class Toast {
         this._progressW := this.width - 28 * d
         this._progressH := 3 * d
         this._progressBitmap := Gdip_CreateBitmap(this._progressW, this._progressH)
+        if (!this._progressBitmap)
+            return
         this._GProgress := Gdip_GraphicsFromImage(this._progressBitmap)
         this.__applyRenderQuality(this._GProgress, true)
     }
@@ -1476,10 +1479,12 @@ class Toast {
         ; Se rasteriza UNA sola vez y luego se blitea sobre GCache en cada __drawCache.
         if (!this._textBitmap) {
             this._textBitmap := Gdip_CreateBitmap(this.width, this.height)
+            if (!this._textBitmap)
+                return
             this._GText := Gdip_GraphicsFromImage(this._textBitmap)
             this.__applyRenderQuality(this._GText, true)
         }
-        Gdip_GraphicsClear(this._textBitmap, 0x00000000)
+        Gdip_GraphicsClear(this._GText, 0x00000000)
 
         titleWidth := this.width - textStartX - (this.showClose ? 40 * d : this.paddingX)
 
@@ -1558,7 +1563,6 @@ class Toast {
                 return
             }
             Gdip_GraphicsClear(this.G, 0x00000000)
-            this.__applyRenderQuality(this.G, false)
             ; Bilinear durante transform: bicubic por frame frena la rotación
             Gdip_SetInterpolationMode(this.G, 6)
             Gdip_ResetWorldTransform(this.G)
@@ -1578,7 +1582,6 @@ class Toast {
             this._compositeDirty := true
         } else if (this._compositeDirty) {
             Gdip_GraphicsClear(this.G, 0x00000000)
-            this.__applyRenderQuality(this.G, false)
             Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
             compositeDone := true
             this._compositeDirty := false
@@ -1647,7 +1650,44 @@ class Toast {
                 Gdip_DrawLine(this.GCache, pal.iconWhitePen2, x + size / 2, y + size / 2.5, x + size / 2, y + size * 3 / 4)
         }
     }
-    DrawCloseButton(pal) {
+    __ensureCloseBitmap() {
+        if (this._closeBitmap)
+            return
+        d := this.dpiFactor
+        this._closeW := 24 * d
+        this._closeH := 24 * d
+        this._closeBitmap := Gdip_CreateBitmap(this._closeW, this._closeH)
+        if (!this._closeBitmap)
+            return
+        this._GClose := Gdip_GraphicsFromImage(this._closeBitmap)
+        this.__applyRenderQuality(this._GClose, true)
+        this._closeHoveredRendered := -1
+    }
+    __renderCloseBitmap(pal) {
+        if (this._closeHoveredRendered == this.closeHovered)
+            return
+        this._closeHoveredRendered := this.closeHovered
+        Gdip_GraphicsClear(this._GClose, 0x00000000)
+        if (this.closeHovered)
+            Gdip_FillEllipse(this._GClose, this._closeHoverBrush, 0, 0, this._closeW, this._closeH)
+        pPen := this.closeHovered ? this._closePenHover : this._closePenNormal
+        d := this.dpiFactor
+        offset := 6 * d
+        size := 20 * d
+        Gdip_DrawLine(this._GClose, pPen, offset, offset, size - offset, size - offset)
+        Gdip_DrawLine(this._GClose, pPen, size - offset, offset, offset, size - offset)
+    }
+    __blitClose() {
+        if (!this._closeBitmap)
+            return
+        d := this.dpiFactor
+        closeSize := 20 * d
+        closeX := this.width - this.paddingX - closeSize
+        closeY := this.paddingY - 4 * d
+        Gdip_DrawImage(this.GCache, this._closeBitmap, closeX - 2 * d, closeY - 2 * d
+            , this._closeW, this._closeH, 0, 0, this._closeW, this._closeH)
+    }
+    __pushCloseRegion() {
         d := this.dpiFactor
         closeSize := 20 * d
         closeX := this.width - this.paddingX - closeSize
@@ -1657,14 +1697,15 @@ class Toast {
             cb: (*) => this.ForceClose(),
             type: "close"
         })
-        if (this.closeHovered) {
-            Gdip_FillEllipse(this.GCache, this._closeHoverBrush, closeX - 2 * d, closeY - 2 * d, closeSize + 4 * d, closeSize + 4 * d)
-            pPen := this._closePenHover
-        } else
-            pPen := this._closePenNormal
-        offset := 6 * d
-        Gdip_DrawLine(this.GCache, pPen, closeX + offset, closeY + offset, closeX + closeSize - offset, closeY + closeSize - offset)
-        Gdip_DrawLine(this.GCache, pPen, closeX + closeSize - offset, closeY + offset, closeX + offset, closeY + closeSize - offset)
+    }
+    __updateCloseHover() {
+        if (!this.showClose || !this._closeBitmap)
+            return
+        pal := ToastTheme.palette(this.theme)
+        this.__renderCloseBitmap(pal)
+        this.__blitClose()
+        this._compositeDirty := true
+        this.Draw()
     }
 
     HasAnim(name) {
@@ -1853,10 +1894,20 @@ class Toast {
             drew := false
 
             ; ── Hover opacity: sube suave a 100% y vuelve a _baseOpacity ──
+            ; Dirección se decide cada tick por this.hovered; si cambia a
+            ; mitad de transición, se reinicia al instante (sin esperar a
+            ; que termine la anterior → sin stutter en in/out rápido).
             if (this.opacityOnHover) {
-                if (this.hovered && !this._hoverOpacityActive && this.opacity < this._baseOpacity + 0.001) {
+                target := this.hovered ? 1.0 : this._baseOpacity
+                if (this._hoverOpacityActive) {
+                    if (Abs(target - this._hoverOpacityTarget) > 0.001) {
+                        this._hoverOpacityFrom := this.opacity
+                        this._hoverOpacityTarget := target
+                        this._hoverOpacityStart := now
+                    }
+                } else if (Abs(this.opacity - target) > 0.001) {
                     this._hoverOpacityFrom := this.opacity
-                    this._hoverOpacityTarget := 1.0
+                    this._hoverOpacityTarget := target
                     this._hoverOpacityStart := now
                     this._hoverOpacityActive := true
                 }
@@ -1970,10 +2021,8 @@ class Toast {
                 this.closeHovered := true
                 break
             }
-        if (wasCloseHovered != this.closeHovered) {
-            this.cacheDirty := true
-            this.Draw()
-        }
+        if (wasCloseHovered != this.closeHovered)
+            this.__updateCloseHover()
         if (!wasHovered && Toastify.hoverPauseEnabled && this.autoDismiss) {
             this.progressPaused := true
             this.progressPauseTime := A_TickCount
@@ -1993,14 +2042,8 @@ class Toast {
                 }
             } else
                 this.progressPaused := false
-            if (this.opacityOnHover) {
-                this._hoverOpacityFrom := this.opacity
-                this._hoverOpacityTarget := this._baseOpacity
-                this._hoverOpacityStart := A_TickCount
-                this._hoverOpacityActive := true
-            }
-            this.cacheDirty := true
-            this.Draw()   ; ← redibuja close button normal + UpdateWindow
+            ; Dirección del hover opacity la maneja Tick() cada frame.
+            this.__updateCloseHover()   ; solo redibuja el halo del botón X
         }
     }
     OnClick(x, y) {
@@ -2117,9 +2160,24 @@ class Toast {
             Gdip_DisposeImage(this._progressBitmap)
             this._progressBitmap := 0
         }
+        if (this._GClose) {
+            Gdip_DeleteGraphics(this._GClose)
+            this._GClose := 0
+        }
+        if (this._closeBitmap) {
+            Gdip_DisposeImage(this._closeBitmap)
+            this._closeBitmap := 0
+        }
         hwnd := this.hwnd
         this.hwnd := 0
         this.gui := 0
+        ; Rompe ciclos de referencia (closures de clickRegions capturan this)
+        this.clickRegions := []
+        this._buttonClickRegions := []
+        this.onClickCallback := 0
+        this.onCloseCallback := 0
+        this.actions := []
+        Toastify.__destroyCount++
         if (DllCall("IsWindow", "ptr", hwnd))
             DllCall("DestroyWindow", "ptr", hwnd)
     }
