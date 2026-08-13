@@ -501,7 +501,6 @@ static Start(theme := "dark", position := "top-right") {
             Toastify.toasts[1].StartExit()
         }
 
-        opts._dpi := dpi   ; DPI del monitor destino para escalar contenido
         t := Toast(title, body, actions, opts)
         Toastify.toasts.Push(t)
         Toastify.__setActive(true)
@@ -1147,7 +1146,6 @@ class Toast {
     _hasRotate := false
     _baseCfg := 0
     dpiFactor := 1.0
-    _dpi := 0
     bufferWidth := 0
     bufferHeight := 0
     progress := 0.0
@@ -1205,8 +1203,6 @@ class Toast {
                     this.onClickCallback := opts.onClick
                 if opts.HasProp("onClose")
                     this.onCloseCallback := opts.onClose
-                if opts.HasProp("_dpi")
-                    this._dpi := opts._dpi
                 if opts.HasProp("opacity")
                     this._baseOpacity := opts.opacity
                 if opts.HasProp("opacityOnHover")
@@ -1309,27 +1305,25 @@ class Toast {
         }
     }
     _applyDpi() {
-        ; Per-Monitor v2: el OS no virtualiza contenido; __reflow ya posiciona
-        ; en px físicos. El contenido también debe escalar con el DPI real del
-        ; monitor destino (lo calcula __createToast antes de construir).
-        dpi := (this._dpi > 0) ? this._dpi : ToastDPI.Primary()
-        this.dpi := dpi
-        this.dpiFactor := ToastDPI.Factor(dpi)
+        ; AHK64 tiene manifest propio - SetProcessDpiAwarenessContext falla.
+        ; Windows ya maneja el scaling automáticamente para este proceso
+        ; (DWM escala la ventana completa). Nosotros NO debemos escalar el
+        ; contenido: siempre factor 1.0, dpi=96.
+        this.dpi := 96
+        this.dpiFactor := 1.0
 
-        p := (pts) => ToastDPI.Px(pts, dpi)
+        p := (pts) => pts   ; sin escala
 
-        this.width := p(this._baseCfg.width)
-        this.height := p(this._baseCfg.minHeight)
-        this.fontSizeTitle := Round(this._baseCfg.fontSizeTitle * this.dpiFactor)
-        this.fontSizeBody := Round(this._baseCfg.fontSizeBody * this.dpiFactor)
-        this.paddingX := p(this._baseCfg.paddingX)
-        this.paddingY := p(this._baseCfg.paddingY)
-        this.iconSize := p(this._baseCfg.iconSize)
-        this.borderRadius := p(this._baseCfg.borderRadius)
-        this.borderWidth := Round(this._baseCfg.borderWidth * this.dpiFactor)
+        this.width := this._baseCfg.width
+        this.height := this._baseCfg.minHeight
+        this.fontSizeTitle := this._baseCfg.fontSizeTitle
+        this.fontSizeBody := this._baseCfg.fontSizeBody
+        this.paddingX := this._baseCfg.paddingX
+        this.paddingY := this._baseCfg.paddingY
+        this.iconSize := this._baseCfg.iconSize
+        this.borderRadius := this._baseCfg.borderRadius
+        this.borderWidth := this._baseCfg.borderWidth
         this.repoDuration := this._baseCfg.repoDuration
-        ; ponytail: mover el toast a otro monitor con distinto % no lo re-escala;
-        ; rescale en reflow si llega a importar.
     }
     _saveBaseCfg() {
         ; Guarda una copia de los valores de diseño a 96 DPI
