@@ -1695,7 +1695,6 @@ class Toast {
     _lastRenderY := 0
     _lastAlpha := -1
     RenderToWindow() {
-        FileAppend("RenderToWindow dirty=" this._compositeDirty " scale=" this.scale " rot=" this.rotation "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         compositeDone := false    ; local: G fue recompuesto este frame
 
         drawX := (this.bufferWidth - this.width) / 2
@@ -1769,7 +1768,6 @@ class Toast {
                 return
             }
         }
-        FileAppend("UpdateWindow wx=" wx " wy=" wy " w=" w " h=" h " alpha=" alpha "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         UpdateLayeredWindow(this.hwnd, this.hdc, wx, wy, w, h, alpha)
     }
     DrawIcon(x, y, size, iconType, pal) {
@@ -1839,7 +1837,6 @@ class Toast {
         this._closeHoveredRendered := -1
     }
     __renderCloseBitmap(pal) {
-        FileAppend("renderCloseBitmap hover=" this.closeHovered " rendered=" this._closeHoveredRendered "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         if (this._closeHoveredRendered == this.closeHovered)
             return
         this._closeHoveredRendered := this.closeHovered
@@ -1877,7 +1874,6 @@ class Toast {
         Gdip_DeleteFontFamily(hFam)
         Gdip_DeleteFont(hFont)
         Gdip_DeleteStringFormat(hFmt)
-        FileAppend("afterRender cbPx=" Format("0x{:08X}", Gdip_GetPixel(this._closeBitmap, 12, 6)) "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
     }
     __contrastOn(c) {
         r := (c >> 16) & 0xFF, g := (c >> 8) & 0xFF, b := c & 0xFF
@@ -1896,7 +1892,6 @@ class Toast {
         closeY := this.paddingY - 4 * d
         Gdip_DrawImage(this.GCache, this._closeBitmap, closeX - 2 * d, closeY - 2 * d
             , this._closeW, this._closeH, 0, 0, this._closeW, this._closeH)
-        FileAppend("afterBlit gcPx=" Format("0x{:08X}", Gdip_GetPixel(this.pBitmapCache, closeX + 12 * d, closeY + 8 * d)) "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
     }
     __pushCloseRegion() {
         d := this.dpiFactor
@@ -1910,7 +1905,6 @@ class Toast {
         })
     }
     __updateCloseHover() {
-        FileAppend("__updateCloseHover closeHovered=" this.closeHovered "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         if (!this.showClose || !this._closeBitmap)
             return
         pal := ToastTheme.palette(this.theme)
