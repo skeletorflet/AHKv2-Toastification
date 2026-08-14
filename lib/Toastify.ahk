@@ -306,7 +306,7 @@ class Toastify {
     }
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-            "width", "borderRadius", "borderWidth", "iconSize", "paddingX", "paddingY", "repoDuration",
+            "width", "minHeight", "borderRadius", "borderWidth", "iconSize", "iconScale", "paddingX", "paddingY", "repoDuration",
             "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality",
             "rotationDegree"]
 
@@ -472,8 +472,8 @@ static Start(theme := "dark", position := "top-right") {
             wa := ToastDPI.WorkArea(0, 0)
             dpi := ToastDPI.Primary()
         }
-        marginY := ToastDPI.Px(16, dpi)
-        spacing := ToastDPI.Px(12, dpi)
+        marginY := ToastDPI.Px(Toastify.marginY, dpi)
+        spacing := ToastDPI.Px(Toastify.spacing, dpi)
 
         availableH := wa.h - marginY * 2
         usedH := 0
@@ -535,9 +535,9 @@ static Start(theme := "dark", position := "top-right") {
             wa := ToastDPI.WorkArea(refX, refY)
             dpi := ToastDPI.ForPoint(refX, refY)
 
-            marginX := ToastDPI.Px(16, dpi)
-            marginY := ToastDPI.Px(16, dpi)
-            spacing := ToastDPI.Px(12, dpi)
+marginX := ToastDPI.Px(Toastify.marginX, dpi)
+        marginY := ToastDPI.Px(Toastify.marginY, dpi)
+        spacing := ToastDPI.Px(Toastify.spacing, dpi)
 
             isBottom := InStr(pos, "bottom") || pos = "bottom"
             isMidV := (pos = "left" || pos = "right" || pos = "center")
@@ -726,14 +726,28 @@ static Start(theme := "dark", position := "top-right") {
                 DllCall("GetCursorPos", "ptr", pt)
                 mx := NumGet(pt, 0, "int")
                 my := NumGet(pt, 4, "int")
-                for t in Toastify.toasts
-                    if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
-                        && my >= t.currentY && my <= t.currentY + t.height))
-                        t.OnMouseLeave()
-                for t in Toastify.exitingToasts
-                    if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
-                        && my >= t.currentY && my <= t.currentY + t.height))
-                        t.OnMouseLeave()
+for t in Toastify.toasts
+                if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
+                    && my >= t.currentY && my <= t.currentY + t.height))
+                    t.OnMouseLeave()
+            for t in Toastify.exitingToasts
+                if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
+                    && my >= t.currentY && my <= t.currentY + t.height))
+                    t.OnMouseLeave()
+            ; Safety del botón X: si el cursor ya no está sobre la región del X
+            ; (aunque siga dentro del toast y sin WM_MOUSEMOVE), quitar el hover.
+            for t in Toastify.toasts
+                if (t.closeHovered) {
+                    ox := (t.bufferWidth - t.width) // 2
+                    oy := (t.bufferHeight - t.height) // 2
+                    cs := 20 * t.dpiFactor
+                    rx := t.currentX + t.width - t.paddingX - cs - ox
+                    ry := t.currentY + t.paddingY - 4 * t.dpiFactor - oy
+                    if !(mx >= rx && mx <= rx + cs && my >= ry && my <= ry + cs) {
+                        t.closeHovered := false
+                        t.__updateCloseHover()
+                    }
+                }
             }
 
             if (anyIconicNow) {
@@ -1088,6 +1102,7 @@ class ToastConfig {
     paddingX := 16
     paddingY := 14
     iconSize := 32
+    iconScale := 1
     borderRadius := 18
     borderWidth := 0
     animDuration := 300
@@ -1112,6 +1127,7 @@ class Toast {
     theme := "dark"
     position := "top-right"
     icon := ""
+    iconScale := 1
     showClose := true
     showProgress := true
     hwnd := 0
@@ -1125,10 +1141,10 @@ class Toast {
     exitStartX := 0
     exitStartY := 0
     static _cfgKeys := ["width", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "animEasing",
+        "paddingX", "paddingY", "iconSize", "iconScale", "borderRadius", "borderWidth", "animDuration", "animEasing",
         "animStyle", "animEntrance", "renderQuality", "repoDuration", "rotationDegree"]
     static _styleKeys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "borderRadius", "borderWidth", "animDuration", "renderQuality",
+        "paddingX", "paddingY", "iconSize", "iconScale", "borderRadius", "borderWidth", "animDuration", "renderQuality",
         "rotationDegree"]
     pBitmapCache := 0
     GCache := 0
@@ -1357,6 +1373,56 @@ class Toast {
         this.borderRadius := this._baseCfg.borderRadius
         this.borderWidth := this._baseCfg.borderWidth
         this.repoDuration := this._baseCfg.repoDuration
+        this.height := Max(this.height, this.__autoHeight())
+    }
+    __autoHeight() {
+        d := this.dpiFactor
+        extras := 0
+        if (this.actions.Length > 0)
+            extras += 38 * d
+        if (this.showProgress && this.duration > 0)
+            extras += 12 * d
+        textW := this.width - this.paddingX * 2
+        if (this.icon != "" && this.icon != "none")
+            textW -= this.iconSize * this.iconScale + 12 * d
+        if (this.showClose)
+            textW -= 40 * d
+        textW := Max(60 * d, textW)
+        tmpBmp := Gdip_CreateBitmap(1, 1)
+        tmpG := tmpBmp ? Gdip_GraphicsFromImage(tmpBmp) : 0
+        titleH := (this.title = "") ? 0 : this.__measureTextH(tmpG, this.title, textW, this.fontSizeTitle, this.fontWeightTitle)
+        bodyH := (this.body = "") ? 0 : this.__measureTextH(tmpG, this.body, textW, this.fontSizeBody, this.fontWeightBody)
+        if (tmpG) {
+            Gdip_DeleteGraphics(tmpG)
+            Gdip_DisposeImage(tmpBmp)
+        }
+        titleBoxH := (this.title = "") ? 0 : Max(this.fontSizeTitle * 1.5, titleH)
+        bodyY := this.paddingY + titleBoxH + (this.title = "" ? 0 : 4 * d)
+        h := bodyY + bodyH + this.paddingY + extras
+        if (this.icon != "" && this.icon != "none")
+            h := Max(h, this.iconSize * this.iconScale + this.paddingY + extras)
+        return Ceil(h)
+    }
+    __measureTextH(G, text, w, fontSize, weight) {
+        if (!G)
+            return 0
+        hFam := Gdip_FontFamilyCreate(this.fontName)
+        if (!hFam)
+            return 0
+        style := (weight = "Bold") ? 1 : (weight = "Italic") ? 2 : (weight = "BoldItalic") ? 3 : 0
+        hFont := Gdip_FontCreate(hFam, fontSize, style)
+        hFmt := Gdip_StringFormatCreate(0x4000)
+        layout := Buffer(16)
+        NumPut("float", 0, layout, 0)
+        NumPut("float", 0, layout, 4)
+        NumPut("float", w, layout, 8)
+        NumPut("float", 10000, layout, 12)
+        ms := Gdip_MeasureString(G, text, hFont, hFmt, &layout)
+        h := IsObject(ms) ? 0 : Ceil(StrSplit(ms, "|")[4])
+        Gdip_DeleteFontFamily(hFam)
+        Gdip_DeleteFont(hFont)
+        Gdip_DeleteStringFormat(hFmt)
+        return h
     }
     _saveBaseCfg() {
         ; Guarda una copia de los valores de diseño a 96 DPI
@@ -1435,10 +1501,17 @@ class Toast {
             Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
 
         iconX := this.paddingX
-        iconY := this.paddingY
-        iconSize := this.iconSize
+        iconSize := this.iconSize * this.iconScale
         textStartX := this.paddingX
-        if (this.icon != "") {
+        if (this.icon != "" && this.icon != "none") {
+            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4 * d) : this.paddingY
+            avail := this.height - bodyY - this.paddingY
+            if (this.actions.Length > 0)
+                avail -= 38 * d
+            if (this.showProgress && this.duration > 0)
+                avail -= 12 * d
+            textBlockH := (bodyY + Max(20 * d, avail)) - this.paddingY
+            iconY := this.paddingY + Max(0, Floor((textBlockH - iconSize) / 2))
             this.DrawIcon(iconX, iconY, iconSize, this.icon, pal)
             textStartX := iconX + iconSize + 12 * d
         }
@@ -1573,16 +1646,17 @@ class Toast {
             Gdip_DeleteFontFamily(hFam)
             Gdip_DeleteStringFormat(hFmt)
             leftover := Max(0, availW - total)
+            factor := (total > availW) ? (availW / total) : 1
             share := Floor(leftover / this.actions.Length)
             y := this.height - (this.showProgress ? 50 * d : 40 * d)
             x := 16 * d
             for idx, act in this.actions {
-                rectW := widths[idx] + share + (idx = this.actions.Length ? Mod(leftover, this.actions.Length) : 0)
+                rectW := Floor(widths[idx] * factor) + share + (idx = this.actions.Length ? Mod(leftover, this.actions.Length) : 0)
                 rectX := x, rectY := y, rectW := Floor(rectW), rectH := 28 * d
                 ; Los botones se dibujan en el _textBitmap (parte del contenido estático)
                 Gdip_FillRoundedRectangle(this._GText, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
                 Gdip_DrawRoundedRectangle(this._GText, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
-                txtOpts := "x" (rectX + 10 * d) " y" (rectY + 6 * d) " w" (rectW - 20 * d) " c" Format("{:x}", btnFg) " r4 s" btnFont " Centre Bold"
+                txtOpts := "x" rectX " y" rectY " w" rectW " h" rectH " c" Format("{:x}", btnFg) " r4 s" btnFont " Centre vCenter Bold"
                 Gdip_TextToGraphics(this._GText, act.HasProp("text") ? act.text : act[1], txtOpts, font, this.width, this.height)
                 this._buttonClickRegions.Push({ x: rectX, y: rectY, w: rectW, h: rectH, cb: (act.HasProp("onClick") ? act.onClick : act[2]), type: "button" })
                 x += rectW + 8 * d
@@ -1621,6 +1695,7 @@ class Toast {
     _lastRenderY := 0
     _lastAlpha := -1
     RenderToWindow() {
+        FileAppend("RenderToWindow dirty=" this._compositeDirty " scale=" this.scale " rot=" this.rotation "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         compositeDone := false    ; local: G fue recompuesto este frame
 
         drawX := (this.bufferWidth - this.width) / 2
@@ -1694,6 +1769,7 @@ class Toast {
                 return
             }
         }
+        FileAppend("UpdateWindow wx=" wx " wy=" wy " w=" w " h=" h " alpha=" alpha "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         UpdateLayeredWindow(this.hwnd, this.hdc, wx, wy, w, h, alpha)
     }
     DrawIcon(x, y, size, iconType, pal) {
@@ -1716,7 +1792,38 @@ class Toast {
                 Gdip_FillEllipse(this.GCache, pal.accentBrush, x, y, size, size)
                 Gdip_FillEllipse(this.GCache, pal.iconWhiteBrush, x + size / 2 - 2, y + size / 4, 4, 4)
                 Gdip_DrawLine(this.GCache, pal.iconWhitePen2, x + size / 2, y + size / 2.5, x + size / 2, y + size * 3 / 4)
+            default:
+                glyphCode := Toast.__glyphCode(iconType)
+                if (glyphCode != "") {
+                    glyph := Chr(glyphCode)
+                    Gdip_TextToGraphics(this.GCache, glyph,
+                        "x" x " y" y " w" size " h" size " Center s" Round(size * 0.9) " c" Format("{:x}", pal.accent),
+                        Toast.__iconFontName(), size * 0.9, size * 0.9)
+                }
         }
+    }
+    static __iconFontName() {
+        static name := ""
+        if (name != "")
+            return name
+        name := "Segoe MDL2 Assets"
+        try {
+            v := RegRead("HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts", "Segoe Fluent Icons (TrueType)")
+            if (v != "")
+                name := "Segoe Fluent Icons"
+        }
+        return name
+    }
+    static __glyphCode(name) {
+        static g := ""
+        if (g == "") {
+            g := Object()
+            for part in StrSplit("check E73E|accept E8FB|cross E711|error2 E783|info2 E946|star E734|starFill E735|heart EB51|heartFill EB52|like E8E1|dislike E8E0|flag E7C1|shield EA18|lock E72E|power E7E8|refresh E72C|sync E895|wifi E701|bluetooth E702|volume E767|mute EA85|play E768|pause E769|stop E71A|record E7C8|forward E72A|back E72B|chevronLeft E76B|chevronRight E76C|mail E715|send E724|reply E97A|message E8BD|phone E717|contact E77B|people E716|group E902|camera E722|webcam E8B8|picture E8B9|video E714|music EC4F|audio E8D6|microphone E720|search E721|home E80F|homeFill EA8A|folder E8B7|folderFill E8D5|save E74E|delete E74D|download E896|upload E898|copy E8C8|cut E8C6|paste E77F|edit E70F|rename E8AC|settings E713|filter E71C|add E710|remove E738|link E71B|globe E774|world E909|calendar E787|calendarFill EA89|clock E823|location E81D|mapPin2 E7B7|cloud E753|help E897|code E943|lightning E945|leaf E8BE|car E804|bus E806|walk E805|cart E7BF|package E7B8|pdf EA90|ringer EA8F|checkbox E739|list E8FD|fullscreen E740|print E749|attach E723|pin E718|shop E719|train E7C0|page E7C3|move E7C2|keyboard E765|chromeClose E8BB", "|") {
+                kv := StrSplit(part, " ")
+                g.%kv[1]% := Integer("0x" kv[2])
+            }
+        }
+        return g.HasProp(name) ? g.%name% : ""
     }
     __ensureCloseBitmap() {
         if (this._closeBitmap)
@@ -1732,18 +1839,53 @@ class Toast {
         this._closeHoveredRendered := -1
     }
     __renderCloseBitmap(pal) {
+        FileAppend("renderCloseBitmap hover=" this.closeHovered " rendered=" this._closeHoveredRendered "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         if (this._closeHoveredRendered == this.closeHovered)
             return
         this._closeHoveredRendered := this.closeHovered
         Gdip_GraphicsClear(this._GClose, 0x00000000)
-        if (this.closeHovered)
-            Gdip_FillEllipse(this._GClose, this._closeHoverBrush, 0, 0, this._closeW, this._closeH)
-        pPen := this.closeHovered ? this._closePenHover : this._closePenNormal
+        accent := pal.accent & 0xFFFFFF
+        if (this.closeHovered) {
+            circleCol := 0xFF000000 | accent
+            glyphCol := this.__contrastOn(pal.accent) ? "ff0f172a" : "ffffffff"
+        } else {
+            circleCol := 0x40000000 | accent
+            glyphCol := Format("{:x}", pal.fg)
+        }
+        circleBrush := Gdip_BrushCreateSolid(circleCol)
+        Gdip_FillEllipse(this._GClose, circleBrush, 0, 0, this._closeW, this._closeH)
+        Gdip_DeleteBrush(circleBrush)
         d := this.dpiFactor
-        offset := 6 * d
-        size := 20 * d
-        Gdip_DrawLine(this._GClose, pPen, offset, offset, size - offset, size - offset)
-        Gdip_DrawLine(this._GClose, pPen, size - offset, offset, offset, size - offset)
+        code := Toast.__glyphCode("chromeClose")
+        if (code = "")
+            code := Toast.__glyphCode("cross")
+        glyph := Chr(code)
+        s := 13 * d
+        hFam := Gdip_FontFamilyCreate(Toast.__iconFontName())
+        hFont := Gdip_FontCreate(hFam, s, 0)
+        hFmt := Gdip_StringFormatCreate(0x1000)
+        layout := Buffer(16)
+        NumPut("float", 0, layout, 0)
+        NumPut("float", 0, layout, 4)
+        NumPut("float", 10000, layout, 8)
+        NumPut("float", 10000, layout, 12)
+        ms := Gdip_MeasureString(this._GClose, glyph, hFont, hFmt, &layout)
+        p := StrSplit(ms, "|")
+        gx := (this._closeW - p[3]) / 2 + 0.5 * d
+        gy := (this._closeH - p[4]) / 2 + 1.0 * d
+        Gdip_TextToGraphics(this._GClose, glyph, "x" gx " y" gy " c" glyphCol " s" s, Toast.__iconFontName(), this._closeW, this._closeH)
+        Gdip_DeleteFontFamily(hFam)
+        Gdip_DeleteFont(hFont)
+        Gdip_DeleteStringFormat(hFmt)
+        FileAppend("afterRender cbPx=" Format("0x{:08X}", Gdip_GetPixel(this._closeBitmap, 12, 6)) "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
+    }
+    __contrastOn(c) {
+        r := (c >> 16) & 0xFF, g := (c >> 8) & 0xFF, b := c & 0xFF
+        lr := r / 255, lg := g / 255, lb := b / 255
+        lr := lr <= 0.03928 ? lr / 12.92 : ((lr + 0.055) / 1.055) ** 2.4
+        lg := lg <= 0.03928 ? lg / 12.92 : ((lg + 0.055) / 1.055) ** 2.4
+        lb := lb <= 0.03928 ? lb / 12.92 : ((lb + 0.055) / 1.055) ** 2.4
+        return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb > 0.4
     }
     __blitClose() {
         if (!this._closeBitmap)
@@ -1754,6 +1896,7 @@ class Toast {
         closeY := this.paddingY - 4 * d
         Gdip_DrawImage(this.GCache, this._closeBitmap, closeX - 2 * d, closeY - 2 * d
             , this._closeW, this._closeH, 0, 0, this._closeW, this._closeH)
+        FileAppend("afterBlit gcPx=" Format("0x{:08X}", Gdip_GetPixel(this.pBitmapCache, closeX + 12 * d, closeY + 8 * d)) "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
     }
     __pushCloseRegion() {
         d := this.dpiFactor
@@ -1767,11 +1910,13 @@ class Toast {
         })
     }
     __updateCloseHover() {
+        FileAppend("__updateCloseHover closeHovered=" this.closeHovered "`n", "C:\Users\July\AppData\Local\Temp\opencode\upd.txt")
         if (!this.showClose || !this._closeBitmap)
             return
         pal := ToastTheme.palette(this.theme)
         this.__renderCloseBitmap(pal)
         this.__blitClose()
+        this.cacheDirty := true
         this._compositeDirty := true
         this.Draw()
     }
