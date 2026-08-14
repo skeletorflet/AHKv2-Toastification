@@ -164,9 +164,9 @@ ShowRandom(*) {
     randCfg := RandomConfig()
     randomGui := Gui(, "Random Theme")
     randomGui.Add("Text", "w360", "Random theme generated:")
-    randomGui.Add("Button", "w360 h40", "Generar Random").OnEvent("Click", (*) => RandGenerate())
-    randomGui.Add("Button", "w360 h40", "Mostrar Nuevamente").OnEvent("Click", (*) => RandShowAgain())
-    randomGui.Add("Button", "w360 h40", "Copiar Codigo").OnEvent("Click", (*) => RandCopy())
+    randomGui.Add("Button", "w360 h40", "Generate Random").OnEvent("Click", (*) => RandGenerate())
+    randomGui.Add("Button", "w360 h40", "Show Again").OnEvent("Click", (*) => RandShowAgain())
+    randomGui.Add("Button", "w360 h40", "Copy Code").OnEvent("Click", (*) => RandCopy())
     randomGui.Show("w400 h220")
 }
 

@@ -4,7 +4,7 @@ A lightweight, GDI+-powered toast notification library for AutoHotkey v2.0. Zero
 
 - Native layered windows, always-on-top, no external DLLs
 - GDI+ rendering: gradients, rounded corners, shadows, emoji support
-- Per-monitor DPI aware (content unscaled — DWM handles scaling)
+- Per-monitor DPI v2 aware; content scales with the monitor's real DPI
 - 60 Hz animation loop, auto power-down to 0% CPU when idle
 - 30 built-in themes, custom themes supported
 - Action buttons, icons, live progress bar, hover interactions
@@ -26,7 +26,12 @@ Toastify.Success("Saved!", "Your changes are safe.")
 
 - AutoHotkey v2.0+
 - Windows Vista+ (per-monitor DPI needs Windows 10 1703+)
-- DPI awareness enabled automatically
+- DPI awareness enabled automatically: at `#Include` time the library sets the
+  thread to Per-Monitor v2 (`SetThreadDpiAwarenessContext(-4)`, with v1 and
+  system-aware fallbacks), so toasts render at the correct physical size on
+  any scaling (100%–200%+). Note: this applies to the whole script thread —
+  any other GUIs you create after including Toastify also become per-monitor
+  aware and are no longer bitmap-scaled by the OS.
 
 ## Global Setup
 
@@ -40,6 +45,7 @@ Toastify.Start(theme := "dark", position := "top-right")
 ; Global defaults for all toasts
 Toastify.SetConfig({
     width: 340,
+    designScale: 1,
     animDuration: 300,
     animEasing: "easeOutCubic",
     animStyle: "slide",
@@ -60,6 +66,7 @@ Toastify.SetConfig({
 | `Toastify.position` | `"top-right"` | Default alignment |
 | `Toastify.hoverPauseEnabled` | `true` | Pause auto-dismiss timer while hovered |
 | `Toastify.maxToasts` | `8` | Hard cap; oldest toast exits when exceeded |
+| `designScale` (via SetConfig) | `1` | Global multiplier for all design points |
 
 ## Show Methods
 
@@ -143,7 +150,8 @@ Toastify.Show("Title", "Body", [], {
 | `showProgress` | bool | `false` | Thin progress bar at the bottom |
 | `position` | string | global | Per-toast alignment override |
 | `icon` | string | `""` | `"success"`, `"error"`, `"warning"`, `"info"` |
-| `width` | int | `340` | Toast width |
+| `width` | int | `340` | Toast width (design px at 96 DPI; scaled by monitor DPI) |
+| `designScale` | float | `1` | Multiplies all design points. Shrink toasts on small screens, e.g. `0.85` on 1366x768 |
 | `animStyle` | array/string | `["slide"]` | 1-4 of the ANIM_STYLE values |
 | `animEasing` | string | `"easeOutCubic"` | Any EASING value |
 | `animEntrance` | string | `"auto"` | `AUTO` resolves from position |

@@ -306,7 +306,7 @@ class Toastify {
     }
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-            "width", "minHeight", "borderRadius", "borderWidth", "iconSize", "iconScale", "paddingX", "paddingY", "repoDuration",
+            "width", "minHeight", "borderRadius", "borderWidth", "iconSize", "iconScale", "designScale", "paddingX", "paddingY", "repoDuration",
             "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality",
             "rotationDegree"]
 
@@ -333,8 +333,8 @@ static Start(theme := "dark", position := "top-right") {
             OnExit((*) => Toastify.Shutdown())
             OnMessage(0x201, (wParam, lParam, msg, hwnd) =>
                 Toastify.__Click(wParam, lParam, msg, hwnd))
-            ; Hover nativo: WM_MOUSEMOVE + TrackMouseEvent/WM_MOUSELEAVE.
-            ; Windows resuelve z-order: solo el toast realmente arriba recibe mensajes.
+            ; Native hover: WM_MOUSEMOVE + TrackMouseEvent/WM_MOUSELEAVE.
+            ; Windows resolves z-order: only the topmost toast receives messages.
             OnMessage(0x200, (wParam, lParam, msg, hwnd) =>
                 Toastify.__onMouseMove(lParam, hwnd))
             OnMessage(0x2A3, (wParam, lParam, msg, hwnd) =>
@@ -347,9 +347,9 @@ static Start(theme := "dark", position := "top-right") {
         Toastify.position := position
     }
 
-    ; ── Activa/desactiva el ciclo de frames ──
-    ;    Activo solo cuando hay toasts vivos: timer 60Hz, timer res 2ms,
-    ;    prioridad HIGH. Idle → todo restaurado, 0% CPU.
+    ; ── Enable/disable the frame loop ──
+    ;    Active only while toasts are alive: 60Hz timer, 2ms timer res,
+    ;    HIGH priority. Idle → everything restored, 0% CPU.
     static __setActive(active) {
         if (active == Toastify.__active)
             return
@@ -455,7 +455,7 @@ static Start(theme := "dark", position := "top-right") {
         if !opts.HasProp("position")
             opts.position := Toastify.position
 
-        ; calcular cuántos toasts visibles hay en la misma posición
+        ; count how many visible toasts share this position
         pos := opts.position
         refT := 0
         for t in Toastify.toasts
@@ -487,7 +487,7 @@ static Start(theme := "dark", position := "top-right") {
         ; altura estimada del nuevo toast
         estHeight := ToastDPI.Px(120, dpi)
         if (usedH + estHeight > availableH && toastsInPos > 0) {
-            ; expulsar el más viejo de esa posición
+            ; evict the oldest toast in that position
             for t in Toastify.toasts {
                 if (t.position = pos) {
                     t.StartExit()
@@ -500,6 +500,10 @@ static Start(theme := "dark", position := "top-right") {
         if (Toastify.toasts.Length >= Toastify.maxToasts) {
             Toastify.toasts[1].StartExit()
         }
+
+        ; pass the computed destination-monitor dpi to the constructor
+        opts := opts.Clone()
+        opts.dpi := dpi
 
         t := Toast(title, body, actions, opts)
         Toastify.toasts.Push(t)
@@ -529,7 +533,7 @@ static Start(theme := "dark", position := "top-right") {
 
         for pos, group in groups {
             refT := group[1]
-            ; Usar target (posición final) para resolver monitor; fallback currentX/Y
+            ; Use target (final position) to resolve the monitor; fallback currentX/Y
             refX := refT.targetX > 0 ? refT.targetX : ((refT.currentX > 0 && refT.currentX < A_ScreenWidth) ? refT.currentX : 0)
             refY := refT.targetY > 0 ? refT.targetY : ((refT.currentY > 0 && refT.currentY < A_ScreenHeight) ? refT.currentY : 0)
             wa := ToastDPI.WorkArea(refX, refY)
@@ -547,8 +551,8 @@ marginX := ToastDPI.Px(Toastify.marginX, dpi)
             waSCY := wa.y + wa.h // 2
 
             _getX(t, p) {
-                ; p explícito: closures no capturan variables de bucle `for`
-                ; por referencia → snapshot del primer grupo = X equivocada.
+                ; explicit p: closures don't capture `for` loop variables
+                ; by reference → snapshot of the first group = wrong X.
                 if (InStr(p, "right") || p = "right")
                     return wa.x + wa.w - marginX - t.width
                 if (InStr(p, "left") || p = "left")
@@ -556,20 +560,20 @@ marginX := ToastDPI.Px(Toastify.marginX, dpi)
                 return waSCX - t.width // 2
             }
 
-            ; ── calcular cuánto espacio disponible hay ──────────────
+            ; ── compute how much vertical space is available ─────────
             availableH := wa.h - marginY * 2
 
             ; ── calcular targets y detectar overflow ────────────────
-            ; Cada target lleva gi = índice ORIGINAL en group; la asignación
-            ; usa esa clave, no posición de array (el reverse+truncado del
-            ; branch bottom rompía ese supuesto → toasts en (0,0)).
+            ; Each target carries gi = ORIGINAL index in group; assignment
+            ; uses that key, not the array position (the reverse+truncated
+            ; bottom branch broke that assumption → toasts at (0,0)).
             targets := []
 
             if (!isBottom && !isMidV) {
                 cursor := wa.y + marginY
                 for idx, t in group {
                     if (cursor + t.height > wa.y + wa.h - marginY)
-                        break   ; simplemente no asignar posición a los que no caben
+                        break   ; just don't assign a position to those that don't fit
                     targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
                     cursor += t.height + spacing
                 }
@@ -594,7 +598,7 @@ marginX := ToastDPI.Px(Toastify.marginX, dpi)
                 cursor := Max(wa.y + marginY, waSCY - totalH // 2)
                 for idx, t in group {
                     if (cursor + t.height > wa.y + wa.h - marginY)
-                        break   ; truncar overflow también en midV
+                        break   ; truncate overflow in midV too
                     targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
                     cursor += t.height + spacing
                 }
@@ -667,7 +671,7 @@ marginX := ToastDPI.Px(Toastify.marginX, dpi)
             anyIconicNow := false
             iconicHwnds := []
             deadHwnds := []
-            ; Scan + watchdog en UN solo paso (antes 3 loops sobre registry)
+            ; Scan + watchdog in ONE pass (previously 3 loops over registry)
             for hwnd, data in Toastify.registry {
                 if (!DllCall("IsWindow", "ptr", hwnd)) {
                     deadHwnds.Push(hwnd)
@@ -704,11 +708,11 @@ marginX := ToastDPI.Px(Toastify.marginX, dpi)
                 if (Toastify.registry.Has(hwnd))
                     Toastify.registry.Delete(hwnd)
 
-            ; ── Seguridad hover: WM_MOUSELEAVE en layered windows es poco
-            ;    confiable → hovered puede quedar true y opacidad en 100%.
-            ;    Check de rectángulo (solo si algo está hovered). NO usar
-            ;    WindowFromPoint: no devuelve layered windows de forma
-            ;    fiable y limpiaba hover con el cursor encima.
+            ; ── Hover safety: WM_MOUSELEAVE on layered windows is unreliable
+            ;    → hovered can stay true and opacity pinned at 100%.
+            ;    Rect check (only if something is hovered). DON'T use
+            ;    WindowFromPoint: unreliable for layered windows and it
+            ;    cleared hover with the cursor on top.
             anyHovered := false
             for t in Toastify.toasts
                 if (t.hovered) {
@@ -734,16 +738,19 @@ for t in Toastify.toasts
                 if (t.hovered && !(mx >= t.currentX && mx <= t.currentX + t.width
                     && my >= t.currentY && my <= t.currentY + t.height))
                     t.OnMouseLeave()
-            ; Safety del botón X: si el cursor ya no está sobre la región del X
-            ; (aunque siga dentro del toast y sin WM_MOUSEMOVE), quitar el hover.
+            ; X button safety: if the cursor is no longer over the X region
+            ; (even if still inside the toast and without WM_MOUSEMOVE), clear its hover.
             for t in Toastify.toasts
                 if (t.closeHovered) {
                     ox := (t.bufferWidth - t.width) // 2
                     oy := (t.bufferHeight - t.height) // 2
-                    cs := 20 * t.dpiFactor
-                    rx := t.currentX + t.width - t.paddingX - cs - ox
-                    ry := t.currentY + t.paddingY - 4 * t.dpiFactor - oy
-                    if !(mx >= rx && mx <= rx + cs && my >= ry && my <= ry + cs) {
+                    d := t.dpiFactor
+                    cxx := t.currentX - ox + t.width - t.paddingX - 20 * d + 10 * d
+                    cyy := t.currentY - oy + t.paddingY - 4 * d + 10 * d
+                    cr := 10 * d
+                    dx := mx - cxx
+                    dy := my - cyy
+                    if (dx * dx + dy * dy > cr * cr) {
                         t.closeHovered := false
                         t.__updateCloseHover()
                     }
@@ -754,7 +761,7 @@ for t in Toastify.toasts
                 ; Restaurar ventanas minimizadas con SetWindowPos
                 ; (SW_SHOWNOACTIVATE=4 NO restaura ventanas minimizadas)
                 for hwnd in iconicHwnds {
-                    ; Método robusto: quitar WS_MINIMIZE del estilo + SetWindowPos
+                    ; Robust method: remove WS_MINIMIZE from the style + SetWindowPos
                     style := DllCall("GetWindowLongPtr", "ptr", hwnd, "int", -16, "ptr")
                     if (style & 0x20000000) {          ; WS_MINIMIZE
                         style &= ~0x20000000
@@ -771,7 +778,7 @@ for t in Toastify.toasts
                 ; ── Acabamos de salir del estado minimizado: snap total ──
                 Toastify.__reflow(false)
                 for t in Toastify.toasts {
-                    ; Forzar animState a "visible" (pudo quedar en "in")
+                    ; Force animState to "visible" (it may have been left in "in")
                     if (t.animState != "out")
                         t.animState := "visible"
                     t.repoActive := false
@@ -792,8 +799,8 @@ for t in Toastify.toasts
         }
 
 
-        ; lógica de expiración (liviana): StartExit ya remueve de toasts y
-        ; lo mueve a exitingToasts; el RemoveAt/re-push era código muerto.
+        ; expiration logic (lightweight): StartExit already removes from toasts and
+        ; moves it to exitingToasts; the RemoveAt/re-push was dead code.
         while (Toastify.toasts.Length > Toastify.maxToasts)
             Toastify.toasts[1].StartExit()
 
@@ -880,7 +887,7 @@ class ToastTheme {
             return
 
         ; ═══════════════════════════════════════════════════════════════
-        ; DARK THEMES — saturación alta, sombras más fuertes, acentos vivos
+        ; DARK THEMES — high saturation, stronger shadows, vivid accents
         ; ═══════════════════════════════════════════════════════════════
 
         ToastTheme.Register("error", {
@@ -960,7 +967,7 @@ class ToastTheme {
         })
 
         ; ═══════════════════════════════════════════════════════════════
-        ; LIGHT THEMES — más saturación, gradiente visible, contraste AAA
+        ; LIGHT THEMES — more saturation, visible gradient, AAA contrast
         ; ═══════════════════════════════════════════════════════════════
 
         ToastTheme.Register("error-light", {
@@ -1103,6 +1110,7 @@ class ToastConfig {
     paddingY := 14
     iconSize := 32
     iconScale := 1
+    designScale := 1
     borderRadius := 18
     borderWidth := 0
     animDuration := 300
@@ -1128,6 +1136,7 @@ class Toast {
     position := "top-right"
     icon := ""
     iconScale := 1
+    designScale := 1
     showClose := true
     showProgress := true
     hwnd := 0
@@ -1141,33 +1150,33 @@ class Toast {
     exitStartX := 0
     exitStartY := 0
     static _cfgKeys := ["width", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "iconScale", "borderRadius", "borderWidth", "animDuration", "animEasing",
+        "paddingX", "paddingY", "iconSize", "iconScale", "designScale", "borderRadius", "borderWidth", "animDuration", "animEasing",
         "animStyle", "animEntrance", "renderQuality", "repoDuration", "rotationDegree"]
     static _styleKeys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-        "paddingX", "paddingY", "iconSize", "iconScale", "borderRadius", "borderWidth", "animDuration", "renderQuality",
+        "paddingX", "paddingY", "iconSize", "iconScale", "designScale", "borderRadius", "borderWidth", "animDuration", "renderQuality",
         "rotationDegree"]
     pBitmapCache := 0
     GCache := 0
     cacheDirty := true
     _compositeDirty := true
-    ; ── Overlay de progreso: bitmap chico, se redibuja solo él ──
+    ; ── Progress overlay: small bitmap, only it gets redrawn ──
     _progressBitmap := 0
     _GProgress := 0
     _progressW := 0
     _progressH := 0
-    ; ── Botón close: bitmap chico propio; el halo de hover NO redibuja
-    ;    el cache completo (gradiente + sombra + texto) ──
+    ; ── Close button: its own small bitmap; the hover halo does NOT redraw
+    ;    the full cache (gradient + shadow + text) ──
     _closeBitmap := 0
     _GClose := 0
     _closeW := 0
     _closeH := 0
     _closeHoveredRendered := -1
-    ; ── Fix #4: cache de texto (se renderiza una sola vez) ──
+    ; ── Fix #4: text cache (rendered only once) ──
     _textRendered := false
     _textRenderedTheme := ""
     _buttonClickRegions := []
-    _textBitmap := 0      ; bitmap separado donde se rasteriza texto + botones (Fix bug #4)
-    _GText := 0           ; graphics context del _textBitmap
+    _textBitmap := 0      ; separate bitmap where text + buttons are rasterized (Fix bug #4)
+    _GText := 0           ; graphics context of _textBitmap
     targetX := 0
     targetY := 0
     currentX := 0
@@ -1195,6 +1204,7 @@ class Toast {
     _hasRotate := false
     _baseCfg := 0
     dpiFactor := 1.0
+    _dpi := 0
     bufferWidth := 0
     bufferHeight := 0
     progress := 0.0
@@ -1302,6 +1312,8 @@ class Toast {
             }
         }
         this.creationTime := A_TickCount
+        ; DPI of the destination monitor, computed by __createToast (opts.dpi).
+        this._dpi := (IsObject(opts) && opts.HasProp("dpi")) ? opts.dpi : ToastDPI.Primary()
         this._saveBaseCfg()
         this.__createWindow()
     }
@@ -1336,7 +1348,7 @@ class Toast {
             this._bgBrush := Gdip_BrushCreateSolid(pal.bg1 & 0xFFFFFF)
         this._bgBrushTheme := this.theme
 
-        ; 2) Halo circular del botón close en hover (constante)
+        ; 2) Circular halo of the close button on hover (constant)
         this._closeHoverBrush := Gdip_BrushCreateSolid(0x33FFFFFF)
 
         ; 3) Dos pens del aspa del close: normal + hover (constantes)
@@ -1344,7 +1356,7 @@ class Toast {
         this._closePenNormal := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpiFactor)
         this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpiFactor)
 
-        ; 4) Border custom (solo si borderWidth > 0)
+        ; 4) Custom border (only if borderWidth > 0)
         if (this.borderWidth > 0) {
             this._customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
             this._customBorderTheme := this.theme
@@ -1354,24 +1366,25 @@ class Toast {
         }
     }
     _applyDpi() {
-        ; AHK64 tiene manifest propio - SetProcessDpiAwarenessContext falla.
-        ; Windows ya maneja el scaling automáticamente para este proceso
-        ; (DWM escala la ventana completa). Nosotros NO debemos escalar el
-        ; contenido: siempre factor 1.0, dpi=96.
-        this.dpi := 96
-        this.dpiFactor := 1.0
+        ; Real DPI of the destination monitor (computed by __createToast before
+        ; constructing; primary fallback). The thread is Per-Monitor v2
+        ; (see ToastDPI.ahk), so this dpi is the real physical one and the
+        ; content must be scaled by hand: design px × dpiFactor.
+        dpi := (this._dpi > 0) ? this._dpi : ToastDPI.Primary()
+        this.dpi := dpi
+        this.dpiFactor := ToastDPI.Factor(dpi)
+        s := this._baseCfg.designScale
+        p := (pts) => ToastDPI.Px(pts * s, dpi)
 
-        p := (pts) => pts   ; sin escala
-
-        this.width := this._baseCfg.width
-        this.height := this._baseCfg.minHeight
-        this.fontSizeTitle := this._baseCfg.fontSizeTitle
-        this.fontSizeBody := this._baseCfg.fontSizeBody
-        this.paddingX := this._baseCfg.paddingX
-        this.paddingY := this._baseCfg.paddingY
-        this.iconSize := this._baseCfg.iconSize
-        this.borderRadius := this._baseCfg.borderRadius
-        this.borderWidth := this._baseCfg.borderWidth
+        this.width := p(this._baseCfg.width)
+        this.height := p(this._baseCfg.minHeight)
+        this.fontSizeTitle := Round(this._baseCfg.fontSizeTitle * this.dpiFactor * s)
+        this.fontSizeBody := Round(this._baseCfg.fontSizeBody * this.dpiFactor * s)
+        this.paddingX := p(this._baseCfg.paddingX)
+        this.paddingY := p(this._baseCfg.paddingY)
+        this.iconSize := p(this._baseCfg.iconSize)
+        this.borderRadius := p(this._baseCfg.borderRadius)
+        this.borderWidth := Round(this._baseCfg.borderWidth * this.dpiFactor * s)
         this.repoDuration := this._baseCfg.repoDuration
         this.height := Max(this.height, this.__autoHeight())
     }
@@ -1425,8 +1438,8 @@ class Toast {
         return h
     }
     _saveBaseCfg() {
-        ; Guarda una copia de los valores de diseño a 96 DPI
-        ; (tal como llegaron de ToastConfig/opts) sin escalar.
+        ; Keeps a copy of the design values at 96 DPI
+        ; (as they arrived from ToastConfig/opts) without scaling.
         this._baseCfg := {
             width: this.width,
             minHeight: Toastify.config.minHeight,
@@ -1435,6 +1448,7 @@ class Toast {
             paddingX: this.paddingX,
             paddingY: this.paddingY,
             iconSize: this.iconSize,
+            designScale: this.designScale,
             borderRadius: this.borderRadius,
             borderWidth: this.borderWidth,
             repoDuration: this.repoDuration
@@ -1445,12 +1459,12 @@ class Toast {
         this.hwnd := this.gui.Hwnd
         this._windowShown := false
 
-        ; ── DPI real del monitor donde va a aparecer ──────────────
-        ; En este momento targetX/Y ya están asignados por __reflow.
-        ; Si todavía son 0 usamos el punto 0,0 (monitor primario).
+        ; ── Real DPI of the monitor where the toast will appear ──
+        ; At this point targetX/Y are already assigned by __reflow.
+        ; If they're still 0 we use point 0,0 (primary monitor).
         this._applyDpi()
 
-        ; buffers en px físicos ya escalados
+        ; buffers in physical px, already scaled
         this.bufferWidth := this.width
         this.bufferHeight := this.height
 
@@ -1493,7 +1507,7 @@ class Toast {
         this.clickRegions := []
         Gdip_GraphicsClear(this.GCache)
         Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius)
-        ; Brush de gradiente cacheado en __initThemeCache
+        ; Gradient brush cached in __initThemeCache
         Gdip_FillRoundedRectangle(this.GCache, this._bgBrush, 0, 0, this.width, this.height, this.borderRadius)
         if (this.borderWidth > 0)
             Gdip_DrawRoundedRectangle(this.GCache, this._customBorderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
@@ -1523,18 +1537,18 @@ class Toast {
             this.__pushCloseRegion()
         }
 
-        ; ── Texto (título + body + botones): se rasteriza UNA SOLA VEZ sobre _textBitmap ──
-        ; Luego se blitea sobre GCache cada frame (es un Gdip_DrawImage, barato).
-        ; Así GCache puede vaciarse libremente en cada __drawCache sin perder el texto.
+        ; ── Text (title + body + buttons): rasterized ONCE onto _textBitmap ──
+        ; Then blitted over GCache each frame (a cheap Gdip_DrawImage).
+        ; This lets GCache be cleared freely each __drawCache without losing the text.
         if (!this._textRendered || this._textRenderedTheme != this.theme) {
             this.__renderTextAndButtons(pal, font, d, textStartX)
             this._textRendered := true
             this._textRenderedTheme := this.theme
         }
-        ; SIEMPRE bliteamos el bitmap de texto (preserva el texto entre frames).
+        ; ALWAYS blit the text bitmap (preserves text between frames).
         if (this._textBitmap)
             Gdip_DrawImage(this.GCache, this._textBitmap, 0, 0, this.width, this.height, 0, 0, this.width, this.height)
-        ; Re-aprovecha click-regions de los botones cacheadas
+        ; Reuse the cached button click-regions
         if (this._textRendered)
             for r in this._buttonClickRegions
                 this.clickRegions.Push(r)
@@ -1575,8 +1589,8 @@ class Toast {
     }
 
     __renderTextAndButtons(pal, font, d, textStartX) {
-        ; ── Lazy init del bitmap de texto (separado del GCache) ──
-        ; Se rasteriza UNA sola vez y luego se blitea sobre GCache en cada __drawCache.
+        ; ── Lazy init of the text bitmap (separate from GCache) ──
+        ; Rasterized ONCE, then blitted over GCache in every __drawCache.
         if (!this._textBitmap) {
             this._textBitmap := Gdip_CreateBitmap(this.width, this.height)
             if (!this._textBitmap)
@@ -1606,9 +1620,9 @@ class Toast {
 
         this._buttonClickRegions := []
         if (this.actions.Length) {
-            ; Contraste del texto del botón: blanco o casi-negro, el que dé
-            ; mejor ratio WCAG contra el accent del tema. (Algunos accent son
-            ; claros: retro/flat/minimal → blanco ilegible.)
+            ; Button text contrast: white or near-black, whichever gives the
+            ; best WCAG ratio against the theme accent. (Some accents are
+            ; light: retro/flat/minimal → white unreadable.)
             ar := (pal.accent >> 16) & 0xFF, ag := (pal.accent >> 8) & 0xFF, ab := pal.accent & 0xFF
             lr := ar / 255, lg := ag / 255, lb := ab / 255
             lr := lr <= 0.03928 ? lr / 12.92 : ((lr + 0.055) / 1.055) ** 2.4
@@ -1616,8 +1630,8 @@ class Toast {
             lb := lb <= 0.03928 ? lb / 12.92 : ((lb + 0.055) / 1.055) ** 2.4
             La := 0.2126 * lr + 0.7152 * lg + 0.0722 * lb
             btnFg := (La + 0.05) / 0.05 > 1.05 / (La + 0.05) ? 0xFF0F172A : 0xFFFFFFFF
-            ; Botones a medida: medir cada etiqueta → ancho por texto, sin wrap.
-            ; Si la fila no entra, se achica la fuente del botón (una pasada).
+            ; Custom buttons: measure each label → width by text, no wrap.
+            ; If the row doesn't fit, shrink the button font (one pass).
             hFam := Gdip_FontFamilyCreate(font)
             hFmt := Gdip_StringFormatCreate(0x1000)
             layout := Buffer(16)
@@ -1653,7 +1667,7 @@ class Toast {
             for idx, act in this.actions {
                 rectW := Floor(widths[idx] * factor) + share + (idx = this.actions.Length ? Mod(leftover, this.actions.Length) : 0)
                 rectX := x, rectY := y, rectW := Floor(rectW), rectH := 28 * d
-                ; Los botones se dibujan en el _textBitmap (parte del contenido estático)
+                ; Buttons are drawn on _textBitmap (part of the static content)
                 Gdip_FillRoundedRectangle(this._GText, pal.accentBrush, rectX, rectY, rectW, rectH, 6 * d)
                 Gdip_DrawRoundedRectangle(this._GText, pal.btnBorderPen, rectX, rectY, rectW, rectH, 6 * d)
                 txtOpts := "x" rectX " y" rectY " w" rectW " h" rectH " c" Format("{:x}", btnFg) " r4 s" btnFont " Centre vCenter Bold"
@@ -1705,7 +1719,7 @@ class Toast {
                 return
             }
             Gdip_GraphicsClear(this.G, 0x00000000)
-            ; Bilinear durante transform: bicubic por frame frena la rotación
+            ; Bilinear during transform: bicubic per frame slows down rotation
             Gdip_SetInterpolationMode(this.G, 6)
             Gdip_ResetWorldTransform(this.G)
             bufCX := this.bufferWidth / 2
@@ -1754,7 +1768,7 @@ class Toast {
             return
         w := this.bufferWidth
         h := this.bufferHeight
-        ; ── compensar offset cuando el buffer es más grande que el toast ──
+        ; ── compensate the offset when the buffer is larger than the toast ──
         offsetX := (this.bufferWidth - this.width) // 2
         offsetY := (this.bufferHeight - this.height) // 2
         wx := x - offsetX
@@ -2032,9 +2046,9 @@ class Toast {
     Tick() {
         now := A_TickCount
 
-        ; ── 1) Repo animation: corre INDEPENDIENTE del estado ──
-        ; Antes hacía return aquí → SALTEABA el progreso en "visible" → congelamiento + salto.
-        ; Ahora solo actualiza currentX/Y; el código de estado (in/out/visible) corre después.
+        ; ── 1) Repo animation: runs INDEPENDENT of the state ──
+        ; Previously this returned here → SKIPPED progress in "visible" → freeze + jump.
+        ; Now it only updates currentX/Y; the state code (in/out/visible) runs after.
         repoWasActive := this.repoActive
         if (repoWasActive) {
             elapsed := now - this.repoStartTime
@@ -2049,7 +2063,7 @@ class Toast {
             }
         }
 
-        ; ── 2) Animación de entrada ──
+        ; ── 2) Entrance animation ──
         if (this.animState == "in") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
@@ -2073,14 +2087,14 @@ class Toast {
                 this.rotation := 0
                 this.progressStartTime := now
                 this.repoActive := false
-                ; Buffer expandido (rotate/zoom) queda vivo hasta Destroy:
-                ; evita realloc de entrada→visible y visible→salida (stutter).
+                ; Expanded buffer (rotate/zoom) stays alive until Destroy:
+                ; avoids realloc on entrance→visible and visible→exit (stutter).
             }
             this.Draw()
             return
         }
 
-        ; ── 3) Animación de salida ──
+        ; ── 3) Exit animation ──
         if (this.animState == "out") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
@@ -2096,14 +2110,14 @@ class Toast {
             return
         }
 
-        ; ── 4) Estado visible: progreso + posible draw por repo ──
+        ; ── 4) Visible state: progress + possible draw by repo ──
         if (this.animState == "visible") {
             drew := false
 
-            ; ── Hover opacity: sube suave a 100% y vuelve a _baseOpacity ──
-            ; Dirección se decide cada tick por this.hovered; si cambia a
-            ; mitad de transición, se reinicia al instante (sin esperar a
-            ; que termine la anterior → sin stutter en in/out rápido).
+            ; ── Hover opacity: smoothly rises to 100% and back to _baseOpacity ──
+            ; Direction is decided each tick by this.hovered; if it changes
+            ; mid-transition, it restarts instantly (no waiting for the
+            ; previous one to finish → no stutter on fast in/out).
             if (this.opacityOnHover) {
                 target := this.hovered ? 1.0 : this._baseOpacity
                 if (this._hoverOpacityActive) {
@@ -2150,8 +2164,8 @@ class Toast {
                     }
                 }
             }
-            ; Si la repo acaba de mover la posición este tick, dibuja para reflejarlo.
-            ; (Si el progreso ya disparó Draw, no hace falta otro.)
+            ; If the reposition just moved this tick, draw to reflect it.
+            ; (If progress already triggered Draw, no need for another.)
             if (!drew && repoWasActive)
                 this.Draw()
         }
@@ -2236,22 +2250,49 @@ class Toast {
         }
     }
     OnMouseLeave() {
-        if (this.hovered) {
-            this.hovered := false
-            this.closeHovered := false
-            if (this.autoDismiss && this.duration > 0) {
-                if (this.progressPaused) {
-                    this.progressPaused := false
-                    pausedDuration := A_TickCount - this.progressPauseTime
-                    this.progressStartTime += pausedDuration
-                    if (this.hwnd && Toastify.registry.Has(this.hwnd))
-                        Toastify.registry[this.hwnd].duration += pausedDuration
+        if (!this.hovered)
+            return
+        ; WM_MOUSELEAVE on layered windows is unreliable: it can fire
+        ; with the cursor still inside the toast (e.g. UpdateLayeredWindow
+        ; refreshes the window and the system emits a spurious leave). Check
+        ; the real cursor position before clearing hover.
+        pt := Buffer(8, 0)
+        DllCall("GetCursorPos", "ptr", pt)
+        mx := NumGet(pt, 0, "int")
+        my := NumGet(pt, 4, "int")
+        rx := mx - (this.currentX - (this.bufferWidth - this.width) // 2)
+        ry := my - (this.currentY - (this.bufferHeight - this.height) // 2)
+        if (rx >= 0 && rx <= this.width && ry >= 0 && ry <= this.height) {
+            ; Cursor still INSIDE the toast → spurious leave, keep hover.
+            ; The X only turns off when leaving the button's circular area.
+            if (this.closeHovered) {
+                d := this.dpiFactor
+                cxx := this.width - this.paddingX - 20 * d + 10 * d
+                cyy := this.paddingY - 4 * d + 10 * d
+                cr := 10 * d
+                dx := rx - cxx
+                dy := ry - cyy
+                if (dx * dx + dy * dy > cr * cr) {
+                    this.closeHovered := false
+                    this.__updateCloseHover()
                 }
-            } else
-                this.progressPaused := false
-            ; Dirección del hover opacity la maneja Tick() cada frame.
-            this.__updateCloseHover()   ; solo redibuja el halo del botón X
+            }
+            return
         }
+        this.hovered := false
+        this.closeHovered := false
+        if (this.autoDismiss && this.duration > 0) {
+            if (this.progressPaused) {
+                this.progressPaused := false
+                pausedDuration := A_TickCount - this.progressPauseTime
+                this.progressStartTime += pausedDuration
+                if (this.hwnd && Toastify.registry.Has(this.hwnd))
+                    Toastify.registry[this.hwnd].duration += pausedDuration
+            }
+        } else
+            this.progressPaused := false
+        ; Hover opacity direction is handled by Tick() each frame.
+        this.__updateCloseHover()   ; only redraws the X button halo
     }
     OnClick(x, y) {
         offsetX := (this.bufferWidth > this.width) ? (this.bufferWidth - this.width) / 2 : 0
@@ -2292,15 +2333,15 @@ class Toast {
         if (this.hwnd && Toastify.registry.Has(this.hwnd))
             Toastify.registry.Delete(this.hwnd)
         this.Destroy()
-        ; Todo camino de eliminación (exit loop, watchdog, Dismiss directo)
-        ; pasa por acá → el resto se reordena siempre.
+        ; Every removal path (exit loop, watchdog, direct Dismiss) goes
+        ; through here → the rest is always reordered.
         Toastify.__reflow(true)
     }
     ResizeBuffer(newW, newH) {
         if (newW == this.bufferWidth && newH == this.bufferHeight)
             return
 
-        ; Liberar recursos anteriores
+        ; Release previous resources
         if (this.G) {
             Gdip_DeleteGraphics(this.G)
             this.G := 0
@@ -2315,7 +2356,7 @@ class Toast {
             this.hdc := 0
         }
 
-        ; Crear nuevo buffer
+        ; Create new buffer
         this.bufferWidth := newW
         this.bufferHeight := newH
         this.hbm := CreateDIBSection(newW, newH)
@@ -2358,10 +2399,10 @@ class Toast {
             this.hdc := 0
         }
 
-        ; Limpia brushes/pens cacheados del tema
+        ; Clear cached theme brushes/pens
         this.__deleteThemeCache()
 
-        ; Limpia overlay de progreso
+        ; Clear progress overlay
         if (this._GProgress) {
             Gdip_DeleteGraphics(this._GProgress)
             this._GProgress := 0
@@ -2381,7 +2422,7 @@ class Toast {
         hwnd := this.hwnd
         this.hwnd := 0
         this.gui := 0
-        ; Rompe ciclos de referencia (closures de clickRegions capturan this)
+        ; Break reference cycles (clickRegions closures capture this)
         this.clickRegions := []
         this._buttonClickRegions := []
         this.onClickCallback := 0

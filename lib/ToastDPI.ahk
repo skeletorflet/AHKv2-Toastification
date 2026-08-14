@@ -1,40 +1,48 @@
 ; ============================================================
-;  ToastDPI  –  reemplazo completo del handling de DPI
-;  Estrategia:
-;    • El proceso se declara Per-Monitor v2 aware.
-;    • Toda la configuración pública (width, padding, font…)
-;      se expresa en "puntos de diseño" a 96 DPI (1×).
-;    • ToastDPI.Scale(monitor) convierte puntos → px físicos
-;      usando el DPI real de ESE monitor.
-;    • A_ScreenWidth/Height se reemplaza por
-;      ToastDPI.WorkArea(monitor) → rect físico correcto.
-;    • Los buffers GDI+ siempre trabajan en px físicos.
-;    • Las posiciones de ventana que se pasan a la API de Win32
-;      son siempre px físicos (correcto para layered windows).
+;  ToastDPI  –  complete DPI handling
+;  Strategy:
+;    • The process/thread is declared Per-Monitor v2 aware.
+;    • All public config (width, padding, font…) is expressed
+;      in "design points" at 96 DPI (1×).
+;    • ToastDPI.Px(dpi) converts design points → physical px
+;      using the REAL DPI of that monitor.
+;    • A_ScreenWidth/Height is replaced by
+;      ToastDPI.WorkArea(monitor) → correct physical rect.
+;    • GDI+ buffers always work in physical px.
+;    • Window positions passed to the Win32 API are always
+;      physical px (correct for layered windows).
 ; ============================================================
+
+; ── DPI awareness: activate Per-Monitor v2 on the thread ──
+; AHK64 v2 only declares system-aware in its manifest; without
+; this, GetDpiForMonitor returns virtualized DPI (96) and layered
+; windows (UpdateLayeredWindow) are not bitmap-scaled by DWM
+; → toasts render at design size (tiny on 200%).
+; Top-level: runs at #Include time, before any window/GDI+ init.
+DllCall("SetThreadDpiAwarenessContext", "ptr", -4, "ptr")   ; PMv2, Win10 1703+
+DllCall("SetThreadDpiAwarenessContext", "ptr", -3, "ptr")   ; PMv1 fallback, Win10 1607+
+DllCall("SetProcessDPIAware")                                ; Win7/8 fallback
 
 class ToastDPI {
 
-    ; ── inicialización única ────────────────────────────────
+    ; ── one-time init ────────────────────────────────────────
     static _ready := false
 
     static Init() {
         if ToastDPI._ready
             return
-        ; AHK64 tiene manifest propio que ya declara DPI awareness.
-        ; No intentar sobreescribir - falla silenciosamente y causa
-        ; que GetDpiForWindow devuelva valores incorrectos.
+        ; Awareness was already enabled above (top-level, at #Include).
+        ; Nothing else to do here.
         ToastDPI._ready := true
     }
 
-
-    ; ── DPI de un monitor dado el HWND de una ventana ──────
+    ; ── DPI of the monitor hosting a window ─────────────────
     static ForWindow(hwnd) {
         dpi := DllCall("GetDpiForWindow", "ptr", hwnd, "uint")
         return (dpi > 0) ? dpi : 96
     }
 
-    ; ── DPI del punto (x,y) en pantalla ────────────────────
+    ; ── DPI of the point (x,y) on screen ────────────────────
     static ForPoint(x, y) {
         pt := Buffer(8, 0)
         NumPut("int", x, pt, 0)
@@ -43,22 +51,22 @@ class ToastDPI {
         return ToastDPI._DpiFromMonitor(hMon)
     }
 
-    ; ── DPI del monitor primario ────────────────────────────
+    ; ── DPI of the primary monitor ───────────────────────────
     static Primary() {
         hMon := DllCall("MonitorFromPoint", "ptr", Buffer(8, 0), "uint", 1, "ptr")
         return ToastDPI._DpiFromMonitor(hMon)
     }
 
-    ; ── factor de escala (float) ────────────────────────────
+    ; ── scale factor (float) ─────────────────────────────────
     ;    scale(96)=1.0  scale(120)=1.25  scale(192)=2.0
     static Factor(dpi) => dpi / 96.0
 
-    ; ── convierte puntos de diseño → px físicos ─────────────
-    ;    Siempre usa Round() para evitar px fraccionarios.
+    ; ── converts design points → physical px ─────────────────
+    ;    Always uses Round() to avoid fractional px.
     static Px(designPts, dpi) => Round(designPts * dpi / 96)
 
-    ; ── área de trabajo del monitor que contiene (x,y) ──────
-    ;    Devuelve {x,y,w,h} en px físicos (coordenadas globales)
+    ; ── work area of the monitor containing (x,y) ────────────
+    ;    Returns {x,y,w,h} in physical px (global coordinates)
     static WorkArea(x := 0, y := 0) {
         pt := Buffer(8, 0)
         NumPut("int", x, pt, 0)
@@ -67,7 +75,7 @@ class ToastDPI {
         info := Buffer(40, 0)
         NumPut("uint", 40, info, 0)     ; cbSize
         DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info)
-        ; rcWork empieza en offset 20 (tras rcMonitor de 16 bytes + cbSize de 4)
+        ; rcWork starts at offset 20 (after 16-byte rcMonitor + 4-byte cbSize)
         ; Layout: cbSize(4) rcMonitor(16) rcWork(16) dwFlags(4)
         return {
             x: NumGet(info, 20, "int"),
@@ -77,7 +85,7 @@ class ToastDPI {
         }
     }
 
-    ; ── rect completo del monitor (no work area) ────────────
+    ; ── full monitor rect (not work area) ────────────────────
     static MonitorRect(x := 0, y := 0) {
         pt := Buffer(8, 0)
         NumPut("int", x, pt, 0)
@@ -94,7 +102,7 @@ class ToastDPI {
         }
     }
 
-    ; ── privado: DPI de un HMONITOR ────────────────────────
+    ; ── private: DPI of an HMONITOR ──────────────────────────
     static _DpiFromMonitor(hMon) {
         dpiX := 0, dpiY := 0
         pX := Buffer(4, 0)
