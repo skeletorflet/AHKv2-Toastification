@@ -1,6 +1,8 @@
 #Requires AutoHotkey v2.0
 #Include lib\Toastify.ahk
 
+_fontNames := Map()
+
 Toastify.Start("dark", Toastify.ALIGN.BOTTOM_RIGHT)
 
 themeNames := ["dark", "light", "success", "error", "warning", "info", "midnight", "forest", "neon", "vapor", "cyberpunk", "retro", "glass", "minimal", "pastel", "flat", "success-light", "error-light", "warning-light", "info-light", "midnight-light", "forest-light", "neon-light", "vapor-light", "cyberpunk-light", "retro-light", "glass-light", "minimal-light", "pastel-light", "flat-light"]
@@ -38,7 +40,7 @@ easingNames := [
 entranceNames := ["auto", "right", "left", "top", "bottom"]
 qualityNames := ["Low", "Medium", "High"]
 weightNames := ["Regular", "Bold", "Italic", "BoldItalic"]
-fontNames := ["Segoe UI Emoji", "Segoe UI", "Arial", "Consolas", "Tahoma", "Verdana", "Cambria", "Courier New", "Georgia", "Trebuchet MS"]
+fontNames := SystemFonts()
 
 ui := Gui(, "Toastify Theme Generator")
 ui.BackColor := "F0F0F0"
@@ -97,7 +99,7 @@ ui.Add("Checkbox", "x40 y405 vOpacityHover Checked", "Fade to 100% on hover")
 ; ── Tab 3: Typography ──
 tabs.UseTab(3)
 ui.Add("Text", "x40 y90 w80", "Font:")
-ui.Add("DropDownList", "x120 y86 w280 vFontName Choose1", fontNames)
+ui.Add("DropDownList", "x120 y86 w280 vFontName Choose" Random(1, fontNames.Length), fontNames)
 ui.Add("Text", "x40 y125 w80", "Title size:")
 ui.Add("Slider", "x120 y121 w280 vFontSizeTitle Range10-32 ToolTip", 16)
 ui.Add("Text", "x40 y160 w80", "Body size:")
@@ -469,3 +471,28 @@ HasValue(haystack, needle) {
 }
 
 Pick(arr) => arr[Random(1, arr.Length)]
+
+; ── all fonts installed on the system ──────────────────────
+SystemFonts() {
+    hdc := DllCall("GetDC", "ptr", 0, "ptr")
+    lf := Buffer(92, 0)
+    NumPut("uchar", 1, lf, 23)          ; lfCharSet = DEFAULT_CHARSET → every family
+    cb := CallbackCreate(EnumFontFamProc, 0, 4)
+    DllCall("EnumFontFamiliesEx", "ptr", hdc, "ptr", lf, "ptr", cb, "ptr", 0, "uint", 0)
+    DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+    CallbackFree(cb)
+    s := ""
+    for n in _fontNames
+        s .= n "`n"
+    Sort(s)
+    arr := StrSplit(s, "`n")
+    if arr.Length && arr[arr.Length] = ""
+        arr.Pop()
+    return arr
+}
+EnumFontFamProc(lf, ntm, fontType, lParam) {
+    name := StrGet(lf + 28, 32, "UTF-16")
+    if name && SubStr(name, 1, 1) != "@"        ; skip @ vertical variants
+        _fontNames[name] := true
+    return 1
+}

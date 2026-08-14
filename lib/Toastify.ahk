@@ -1410,6 +1410,7 @@ class Toast {
             Gdip_DisposeImage(tmpBmp)
         }
         titleBoxH := (this.title = "") ? 0 : Max(this.fontSizeTitle * 1.5, titleH)
+        this._titleH := titleH
         bodyY := this.paddingY + titleBoxH + (this.title = "" ? 0 : 4 * d)
         h := bodyY + bodyH + this.paddingY + extras
         if (this.icon != "" && this.icon != "none")
@@ -1518,7 +1519,7 @@ class Toast {
         iconSize := this.iconSize * this.iconScale
         textStartX := this.paddingX
         if (this.icon != "" && this.icon != "none") {
-            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4 * d) : this.paddingY
+            bodyY := (this.title != "") ? (this.paddingY + Max(this.fontSizeTitle * 1.5, this._titleH) + 4 * d) : this.paddingY
             avail := this.height - bodyY - this.paddingY
             if (this.actions.Length > 0)
                 avail -= 38 * d
@@ -1607,7 +1608,7 @@ class Toast {
             Gdip_TextToGraphics(this._GText, this.title, titleOpts, font, this.width, this.height)
         }
         if (this.body != "") {
-            bodyY := (this.title != "") ? (this.paddingY + this.fontSizeTitle * 1.5 + 4 * d) : this.paddingY
+            bodyY := (this.title != "") ? (this.paddingY + Max(this.fontSizeTitle * 1.5, this._titleH) + 4 * d) : this.paddingY
             availableHeight := this.height - bodyY - this.paddingY
             if (this.actions.Length > 0)
                 availableHeight -= 38 * d
@@ -1744,6 +1745,7 @@ class Toast {
         }
 
         alpha := Floor(this.opacity * 255)
+        alpha := Max(0, Min(255, alpha))
         x := this.currentX
         y := this.currentY
 
@@ -1756,10 +1758,11 @@ class Toast {
     }
 
     UpdateWindow(x, y, alpha := -1) {
-        if (alpha = -1) {
+        if (alpha = -1)
             alpha := Floor(this.opacity * 255)
-            alpha := Max(0, Min(255, alpha))
-        }
+        ; Negative alpha (elastic/back easing dips) wraps the BLENDFUNCTION
+        ; AlphaFormat byte → ULW ignores per-pixel alpha → opaque black flash.
+        alpha := Max(0, Min(255, alpha))
         if (!this.hwnd)
             return
         if (!DllCall("IsWindow", "ptr", this.hwnd))
@@ -1781,6 +1784,7 @@ class Toast {
                 this._windowShown := false
                 return
             }
+            
         }
         UpdateLayeredWindow(this.hwnd, this.hdc, wx, wy, w, h, alpha)
     }
