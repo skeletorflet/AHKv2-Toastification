@@ -46,17 +46,20 @@ class ToastTheme {
         ToastTheme.Register("neon", {
             bg1: 0xEE0F0518, bg2: 0xEE1A0B2E,
             fg: 0xFFF5D0FE, accent: 0xFFE879F9,
-            shadow: 0x99D946EF, progress: 0xFFC026D3
+            shadow: 0x99D946EF, progress: 0xFFC026D3,
+            glow: true
         })
         ToastTheme.Register("vapor", {
             bg1: 0xEE10002B, bg2: 0xEE240046,
             fg: 0xFFE0AAFF, accent: 0xFF22D3EE,
-            shadow: 0x7700FFFF, progress: 0xFFE879F9
+            shadow: 0x7700FFFF, progress: 0xFFE879F9,
+            glow: true
         })
         ToastTheme.Register("cyberpunk", {
             bg1: 0xEE000000, bg2: 0xEE0A0A0A,
             fg: 0xFFFCEE0A, accent: 0xFF00F0FF,
-            shadow: 0x88FCEE0A, progress: 0xFFFF003C
+            shadow: 0x88FCEE0A, progress: 0xFFFF003C,
+            gradientAngle: 45, glow: true
         })
         ToastTheme.Register("retro", {
             bg1: 0xEE0A0A0A, bg2: 0xEE000000,
@@ -66,12 +69,14 @@ class ToastTheme {
         ToastTheme.Register("glass", {
             bg1: 0xCC1F2937, bg2: 0xCC111827,
             fg: 0xFFFFFFFF, accent: 0xCCFFFFFF,
-            shadow: 0x44000000, progress: 0xFFFFFFFF, progressBg: 0x40FFFFFF
+            shadow: 0x44000000, progress: 0xFFFFFFFF, progressBg: 0x40FFFFFF,
+            borderWidth: 0, gradientType: "radial"
         })
         ToastTheme.Register("minimal", {
             bg1: 0xFF0A0A0A, bg2: 0xFF000000,
             fg: 0xFFFFFFFF, accent: 0xFFFFFFFF,
-            shadow: 0x33000000, progress: 0xFFAAAAAA, progressBg: 0x40FFFFFF
+            shadow: 0x33000000, progress: 0xFFAAAAAA, progressBg: 0x40FFFFFF,
+            borderWidth: 0
         })
         ToastTheme.Register("pastel", {
             bg1: 0xEE1F1F23, bg2: 0xEE18181B,
@@ -81,7 +86,8 @@ class ToastTheme {
         ToastTheme.Register("flat", {
             bg1: 0xFF1E293B, bg2: 0xFF0F172A,
             fg: 0xFFF1F5F9, accent: 0xFFCBD5E1,
-            shadow: 0x33000000, progress: 0xFF94A3B8, progressBg: 0x40FFFFFF
+            shadow: 0x33000000, progress: 0xFF94A3B8, progressBg: 0x40FFFFFF,
+            borderWidth: 0
         })
 
         ; ═══════════════════════════════════════════════════════════════
@@ -146,12 +152,14 @@ class ToastTheme {
         ToastTheme.Register("glass-light", {
             bg1: 0xDDFFFFFF, bg2: 0xDDE2E8F0,
             fg: 0xFF0F172A, accent: 0xCC6366F1,
-            shadow: 0x33000000, progress: 0xCC6366F1
+            shadow: 0x33000000, progress: 0xCC6366F1,
+            borderWidth: 0
         })
         ToastTheme.Register("minimal-light", {
             bg1: 0xFFFFFFFF, bg2: 0xFFF1F5F9,
             fg: 0xFF000000, accent: 0xFF000000,
-            shadow: 0x33000000, progress: 0xFF525252, progressBg: 0x59000000
+            shadow: 0x33000000, progress: 0xFF525252, progressBg: 0x59000000,
+            borderWidth: 0
         })
         ToastTheme.Register("pastel-light", {
             bg1: 0xFFFFE4E6, bg2: 0xFFFFC9D6,
@@ -161,7 +169,134 @@ class ToastTheme {
         ToastTheme.Register("flat-light", {
             bg1: 0xFFF1F5F9, bg2: 0xFFCBD5E1,
             fg: 0xFF0F172A, accent: 0xFF475569,
-            shadow: 0x33000000, progress: 0xFF1E293B
+            shadow: 0x33000000, progress: 0xFF1E293B,
+            borderWidth: 0
+        })
+
+        ; ═══════════════════════════════════════════════════════════════
+        ; MODERN THEMES — community palettes (T2)
+        ; ═══════════════════════════════════════════════════════════════
+
+        ToastTheme.Register("dracula", {
+            bg1: 0xEE282A36, bg2: 0xEE1E1F29,
+            fg: 0xFFF8F8F2, accent: 0xFFBD93F9,
+            shadow: 0x77BD93F9, progress: 0xFF50FA7B
+        })
+        ToastTheme.Register("dracula-light", {
+            bg1: 0xFFF8F8F2, bg2: 0xFFECEAF3,
+            fg: 0xFF44475A, accent: 0xFF6272A4,
+            shadow: 0x446272A4, progress: 0xFF2EB66A
+        })
+        ToastTheme.Register("tokyo-night", {
+            bg1: 0xEE1A1B26, bg2: 0xEE16161E,
+            fg: 0xFFA9B1D6, accent: 0xFF7AA2F7,
+            shadow: 0x777AA2F7, progress: 0xFFBB9AF7
+        })
+        ToastTheme.Register("tokyo-night-light", {
+            bg1: 0xFFE1E2E7, bg2: 0xFFD0D4DE,
+            fg: 0xFF3760BF, accent: 0xFF1664D9,
+            shadow: 0x441664D9, progress: 0xFF8B5CF6
+        })
+        ToastTheme.Register("catppuccin-mocha", {
+            bg1: 0xEE1E1E2E, bg2: 0xEE181825,
+            fg: 0xFFCDD6F4, accent: 0xFF89B4FA,
+            shadow: 0x7789B4FA, progress: 0xFFA6E3A1
+        })
+        ToastTheme.Register("catppuccin-latte", {
+            bg1: 0xFFEFF1F5, bg2: 0xFFE6E9EF,
+            fg: 0xFF4C4F69, accent: 0xFF1E66F5,
+            shadow: 0x441E66F5, progress: 0xFF40A02B
+        })
+        ToastTheme.Register("nord", {
+            bg1: 0xEE2E3440, bg2: 0xEE242933,
+            fg: 0xFFD8DEE9, accent: 0xFF88C0D0,
+            shadow: 0x7788C0D0, progress: 0xFFA3BE8C
+        })
+        ToastTheme.Register("nord-light", {
+            bg1: 0xFFE5E9F0, bg2: 0xFFD8DEE9,
+            fg: 0xFF2E3440, accent: 0xFF5E81AC,
+            shadow: 0x445E81AC, progress: 0xFFA3BE8C
+        })
+        ToastTheme.Register("solarized", {
+            bg1: 0xEE073642, bg2: 0xEE002B36,
+            fg: 0xFFEEE8D5, accent: 0xFF268BD2,
+            shadow: 0x77268BD2, progress: 0xFF2AA198
+        })
+        ToastTheme.Register("solarized-light", {
+            bg1: 0xFFFDF6E3, bg2: 0xFFEEE8D5,
+            fg: 0xFF657B83, accent: 0xFF268BD2,
+            shadow: 0x44268BD2, progress: 0xFF2AA198
+        })
+        ToastTheme.Register("gruvbox", {
+            bg1: 0xEE282828, bg2: 0xEE1D2021,
+            fg: 0xFFEBDBB2, accent: 0xFFB8BB26,
+            shadow: 0x77B8BB26, progress: 0xFF83A598
+        })
+        ToastTheme.Register("gruvbox-light", {
+            bg1: 0xFFFBF1C7, bg2: 0xFFEBDBB2,
+            fg: 0xFF3C3836, accent: 0xFF79740E,
+            shadow: 0x4479740E, progress: 0xFF427B58
+        })
+        ToastTheme.Register("one-dark", {
+            bg1: 0xEE282C34, bg2: 0xEE21252B,
+            fg: 0xFFABB2BF, accent: 0xFF61AFEF,
+            shadow: 0x7761AFEF, progress: 0xFF98C379
+        })
+        ToastTheme.Register("one-light", {
+            bg1: 0xFFFAFAFA, bg2: 0xFFEFF1F5,
+            fg: 0xFF383A42, accent: 0xFF4078F2,
+            shadow: 0x444078F2, progress: 0xFF50A14F
+        })
+        ToastTheme.Register("synthwave", {
+            bg1: 0xEE241B2F, bg2: 0xEE1A1124,
+            fg: 0xFFF4D0FF, accent: 0xFFFF7EDB,
+            shadow: 0x99FF7EDB, progress: 0xFF36F9F6,
+            glow: true
+        })
+        ToastTheme.Register("synthwave-light", {
+            bg1: 0xFFFFF0F7, bg2: 0xFFFFD9EC,
+            fg: 0xFF5C2A6E, accent: 0xFFD81B8A,
+            shadow: 0x44D81B8A, progress: 0xFF0E9BA8
+        })
+        ToastTheme.Register("monokai", {
+            bg1: 0xEE272822, bg2: 0xEE1E1F1C,
+            fg: 0xFFF8F8F2, accent: 0xFFF92672,
+            shadow: 0x77F92672, progress: 0xFFA6E22E
+        })
+        ToastTheme.Register("monokai-light", {
+            bg1: 0xFFF8F8F2, bg2: 0xFFEDEDE0,
+            fg: 0xFF49483E, accent: 0xFFF92672,
+            shadow: 0x44F92672, progress: 0xFF5C9E24
+        })
+        ToastTheme.Register("material-you", {
+            bg1: 0xEE1D1B20, bg2: 0xEE141218,
+            fg: 0xFFE6E0E9, accent: 0xFFD0BCFF,
+            shadow: 0x77D0BCFF, progress: 0xFFF2B8C6
+        })
+        ToastTheme.Register("material-you-light", {
+            bg1: 0xFFFEF7FF, bg2: 0xFFF3EDF7,
+            fg: 0xFF1D1B20, accent: 0xFF6750A4,
+            shadow: 0x446750A4, progress: 0xFFB3261E
+        })
+        ToastTheme.Register("carbon", {
+            bg1: 0xEE161616, bg2: 0xEE0B0B0C,
+            fg: 0xFFF4F4F4, accent: 0xFF78A9FF,
+            shadow: 0x7778A9FF, progress: 0xFF08BDBA
+        })
+        ToastTheme.Register("carbon-light", {
+            bg1: 0xFFF4F4F4, bg2: 0xFFE8E8E8,
+            fg: 0xFF161616, accent: 0xFF0F62FE,
+            shadow: 0x440F62FE, progress: 0xFF24A148
+        })
+        ToastTheme.Register("ayu", {
+            bg1: 0xEE0D1017, bg2: 0xEE0B0E14,
+            fg: 0xFFB8C2CC, accent: 0xFFFFB454,
+            shadow: 0x77FFB454, progress: 0xFF39BAE6
+        })
+        ToastTheme.Register("ayu-light", {
+            bg1: 0xFFFAFAFA, bg2: 0xFFF2F1ED,
+            fg: 0xFF5C6166, accent: 0xFFFF9940,
+            shadow: 0x44FF9940, progress: 0xFF39BAE6
         })
     }
 
@@ -179,16 +314,26 @@ class ToastTheme {
         }
         if !palette.HasOwnProp("borderWidth")
             palette.borderWidth := 1.5
-        palette.shadowBrush := Gdip_BrushCreateSolid(palette.shadow)
         palette.borderPen := Gdip_CreatePen(palette.border, palette.borderWidth)
         palette.accentBrush := Gdip_BrushCreateSolid(palette.accent)
-        palette.btnBorderPen := Gdip_CreatePen(0x44FFFFFF, 1)
+        ; Button border: WCAG-onAccent at 20% alpha — adapts to light/dark accents
+        ; (fixed 0x44FFFFFF was invisible on light themes).
+        btnBorder := ToastTheme.onAccent(palette.accent)
+        palette.btnBorderPen := Gdip_CreatePen(0x33000000 | (btnBorder & 0xFFFFFF), 1)
         palette.btnFillBrush := Gdip_BrushCreateSolid(0x33000000)
         palette.progressBgBrush := Gdip_BrushCreateSolid(palette.progressBg)
         palette.progressFillBrush := Gdip_BrushCreateSolid(palette.progress)
+        ; ── Icon glyphs: WCAG-onAccent, not fixed white (white on light
+        ;    accents like #34D399/#FB923C has ~1.8:1 ratio — unreadable) ──
+        iconFg := ToastTheme.onAccent(palette.accent)
+        palette.iconFgBrush := Gdip_BrushCreateSolid(iconFg)
+        palette.iconFgPen := Gdip_CreatePen(iconFg, 3)
+        palette.iconFgPen2 := Gdip_CreatePen(iconFg, 2)
+        ; Legacy white icons (kept for custom themes referencing them)
         palette.iconWhiteBrush := Gdip_BrushCreateSolid(0xFFFFFFFF)
         palette.iconWhitePen := Gdip_CreatePen(0xFFFFFFFF, 3)
         palette.iconWhitePen2 := Gdip_CreatePen(0xFFFFFFFF, 2)
+        ToastTheme.CheckContrast(name, palette)
         ToastTheme.themes[name] := palette
     }
 
@@ -204,20 +349,48 @@ class ToastTheme {
         L := ToastTheme.luminance(c)
         return ((L + 0.05) / 0.05 > 1.05 / (L + 0.05)) ? 0xFF0F172A : 0xFFFFFFFF
     }
+    static ratio(c1, c2) {
+        L1 := ToastTheme.luminance(c1)
+        L2 := ToastTheme.luminance(c2)
+        hi := Max(L1, L2), lo := Min(L1, L2)
+        return (hi + 0.05) / (lo + 0.05)
+    }
+    static CheckContrast(name, palette) {
+        ; C5: WCAG AA warn (OutputDebug, non-blocking)
+        fgBg := ToastTheme.ratio(palette.fg, palette.bg1)
+        accFg := ToastTheme.ratio(palette.accent, palette.fg)
+        if (fgBg < 4.5)
+            OutputDebug("Toastify: theme '" name "' fg/bg=" Round(fgBg, 2) " < 4.5 (WCAG AA)")
+        if (accFg < 3)
+            OutputDebug("Toastify: theme '" name "' accent/fg=" Round(accFg, 2) " < 3")
+    }
     static palette(theme) {
+        if (theme == "auto")
+            theme := ToastTheme.ResolveAuto()
         if (ToastTheme.themes.Has(theme))
             return ToastTheme.themes[theme]
         return ToastTheme.themes["dark"]
     }
 
+    ; ── "auto" follows the Windows app theme ──
+    static ResolveAuto() {
+        try {
+            v := RegRead("HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme")
+            return (v = 1) ? "light" : "dark"
+        }
+        return "dark"
+    }
+
     static DeletePalette(pal) {
-        try Gdip_DeleteBrush(pal.shadowBrush)
         try Gdip_DeletePen(pal.borderPen)
         try Gdip_DeleteBrush(pal.accentBrush)
         try Gdip_DeletePen(pal.btnBorderPen)
         try Gdip_DeleteBrush(pal.btnFillBrush)
         try Gdip_DeleteBrush(pal.progressBgBrush)
         try Gdip_DeleteBrush(pal.progressFillBrush)
+        try Gdip_DeleteBrush(pal.iconFgBrush)
+        try Gdip_DeletePen(pal.iconFgPen)
+        try Gdip_DeletePen(pal.iconFgPen2)
         try Gdip_DeleteBrush(pal.iconWhiteBrush)
         try Gdip_DeletePen(pal.iconWhitePen)
         try Gdip_DeletePen(pal.iconWhitePen2)

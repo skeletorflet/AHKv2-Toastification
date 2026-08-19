@@ -40,6 +40,7 @@ easingNames := [
 entranceNames := ["auto", "right", "left", "top", "bottom"]
 qualityNames := ["Low", "Medium", "High"]
 weightNames := ["Regular", "Bold", "Italic", "BoldItalic"]
+soundNames := ["(none)", "SystemAsterisk", "SystemExclamation", "SystemHand", "SystemQuestion", "SystemNotification"]
 fontNames := SystemFonts()
 
 ui := Gui(, "Toastify Theme Generator")
@@ -67,12 +68,24 @@ ui.Add("Checkbox", "x40 y310 vPermanent", "Permanent (0)")
 ui.Add("Checkbox", "x170 yp vAutoDismiss Checked", "Auto-dismiss")
 ui.Add("Checkbox", "x320 yp vShowProgress Checked", "Progress bar")
 ui.Add("Checkbox", "x40 y345 vShowClose Checked", "Close button")
+ui.Add("Checkbox", "x170 yp vProgressWait Checked", "Progress waits for position")
 ui.Add("Text", "x40 y385 w70", "Action 1:")
 ui.Add("Edit", "x120 y381 w280 vAct1", "Open Notepad")
 ui.Add("Text", "x40 y420 w70", "Action 2:")
 ui.Add("Edit", "x120 y416 w280 vAct2", "Close")
 ui.Add("Text", "x40 y455 w70", "Action 3:")
 ui.Add("Edit", "x120 y451 w280 vAct3", "")
+ui.Add("Text", "x40 y490 w70", "Sound:")
+ui.Add("DropDownList", "x120 y486 w140 vSound Choose1", soundNames)
+ui.Add("Text", "x280 y490 w50", "Tag:")
+ui.Add("Edit", "x320 y486 w140 vTag", "")
+ui.Add("Text", "x480 y490 w70", "Priority:")
+ui.Add("Slider", "x550 y486 w180 vPriority Range0-10 ToolTip", 0)
+ui.Add("Checkbox", "x40 y525 vIndeterminate", "Indeterminate")
+ui.Add("Checkbox", "x170 yp vStriped", "Striped")
+ui.Add("Checkbox", "x270 yp vFlash", "Flash")
+ui.Add("Text", "x510 y530 w70", "Prog height:")
+ui.Add("Slider", "x570 y526 w250 vProgHeight Range1-10 ToolTip", 3)
 
 ; ── Tab 2: Appearance ──
 tabs.UseTab(2)
@@ -216,6 +229,7 @@ CollectConfig() {
         permanent: g.Permanent,
         autoDismiss: g.AutoDismiss,
         showProgress: g.ShowProgress,
+        progressBarWaitPosition: g.ProgressWait,
         showClose: g.ShowClose,
         actions: actions,
         width: g.Width,
@@ -238,6 +252,13 @@ CollectConfig() {
         animDuration: g.AnimDur,
         rotationDegree: g.Rotation,
         repoDuration: g.RepoDur,
+        sound: (g.Sound = "(none)" ? "" : g.Sound),
+        tag: Trim(g.Tag),
+        priority: g.Priority,
+        indeterminate: g.Indeterminate,
+        progressHeight: g.ProgHeight,
+        progressStriped: g.Striped,
+        flashOnComplete: g.Flash,
         marginX: g.MarginX,
         marginY: g.MarginY,
         spacing: g.Spacing,
@@ -265,6 +286,7 @@ RandomConfig() {
     }
     titles := ["Update Available", "Download Complete", "New Message", "Battery Low", "Backup Finished", "Meeting in 10", "Installation Ready", "Sync Completed"]
     bodies := ["v2.1.0 is ready.", "3 files saved.", "You have 1 unread notification.", "Plug in your charger soon.", "Backup finished successfully.", "Don't forget to join the call.", "The new build is ready.", "All files are up to date."]
+    indet := Random(0, 1) ? true : false
     return {
         title: Pick(titles),
         body: Pick(bodies),
@@ -273,10 +295,11 @@ RandomConfig() {
         icon: Pick(iconNames),
         iconScale: Random(0.8, 1.2),
         iconSize: Random(16, 64),
-        duration: Random(0, 1) ? 0 : Random(1500, 8000),
+        duration: indet ? 0 : (Random(0, 1) ? 0 : Random(1500, 8000)),
         permanent: false,
-        autoDismiss: true,
-        showProgress: Random(0, 1) ? true : false,
+        autoDismiss: indet ? false : (Random(0, 1) ? true : false),
+        showProgress: indet ? true : (Random(0, 1) ? true : false),
+        progressBarWaitPosition: indet ? false : (Random(0, 1) ? true : false),
         showClose: true,
         actions: actions,
         width: Random(240, 480),
@@ -299,6 +322,13 @@ RandomConfig() {
         animDuration: Random(150, 900),
         rotationDegree: Random(0, 30),
         repoDuration: Random(150, 500),
+        sound: Random(0, 1) ? "" : Pick(["SystemAsterisk", "SystemExclamation", "SystemHand", "SystemQuestion", "SystemNotification"]),
+        tag: Random(0, 1) ? "" : "demo-" Random(1, 5),
+        priority: Random(0, 5),
+        indeterminate: indet,
+        progressHeight: Random(1, 8),
+        progressStriped: Random(0, 1) ? true : false,
+        flashOnComplete: Random(0, 1) ? true : false,
         marginX: Random(8, 40),
         marginY: Random(8, 40),
         spacing: Random(6, 30),
@@ -334,6 +364,7 @@ ShowToastFrom(cfg, applyLayout := true) {
         duration: cfg.duration,
         permanent: cfg.permanent,
         showProgress: cfg.showProgress,
+        progressBarWaitPosition: cfg.progressBarWaitPosition,
         autoDismiss: cfg.autoDismiss,
         opacity: cfg.opacity,
         opacityOnHover: cfg.opacityOnHover,
@@ -348,6 +379,13 @@ ShowToastFrom(cfg, applyLayout := true) {
         fontSizeBody: cfg.fontSizeBody,
         fontWeightTitle: cfg.fontWeightTitle,
         fontWeightBody: cfg.fontWeightBody,
+        sound: cfg.sound,
+        tag: cfg.tag,
+        priority: cfg.priority,
+        indeterminate: cfg.indeterminate,
+        progressHeight: cfg.progressHeight,
+        progressStriped: cfg.progressStriped,
+        flashOnComplete: cfg.flashOnComplete,
     }
     Toastify.Show(cfg.title, cfg.body, buttons, opts)
 }
@@ -431,6 +469,20 @@ BuildCode(cfg) {
     lines.Push('    fontSizeBody: ' cfg.fontSizeBody ',')
     lines.Push('    fontWeightTitle: "' cfg.fontWeightTitle '",')
     lines.Push('    fontWeightBody: "' cfg.fontWeightBody '",')
+    if cfg.sound != ""
+        lines.Push('    sound: "' cfg.sound '",')
+    if cfg.tag != ""
+        lines.Push('    tag: "' cfg.tag '",')
+    if cfg.priority > 0
+        lines.Push('    priority: ' cfg.priority ',')
+    if cfg.indeterminate
+        lines.Push('    indeterminate: true,')
+    if cfg.progressHeight != 3
+        lines.Push('    progressHeight: ' cfg.progressHeight ',')
+    if cfg.progressStriped
+        lines.Push('    progressStriped: true,')
+    if cfg.flashOnComplete
+        lines.Push('    flashOnComplete: true,')
     styleStr := '['
     for i, s in cfg.animStyle
         styleStr .= (i > 1 ? ", " : "") '"' s '"'
@@ -446,6 +498,7 @@ BuildCode(cfg) {
         lines.Push('    permanent: true,')
     lines.Push('    autoDismiss: ' (cfg.autoDismiss ? "true" : "false") ',')
     lines.Push('    showProgress: ' (cfg.showProgress ? "true" : "false") ',')
+    lines.Push('    progressBarWaitPosition: ' (cfg.progressBarWaitPosition ? "true" : "false") ',')
     lines.Push('    showClose: ' (cfg.showClose ? "true" : "false") ',')
     lines.Push('    opacity: ' cfg.opacity ',')
     lines.Push('    opacityOnHover: ' (cfg.opacityOnHover ? "true" : "false") ',')

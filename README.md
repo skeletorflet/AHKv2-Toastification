@@ -6,9 +6,11 @@ A lightweight, GDI+-powered toast notification library for AutoHotkey v2.0. Zero
 - GDI+ rendering: gradients, rounded corners, shadows, emoji support
 - Per-monitor DPI v2 aware; content scales with the monitor's real DPI
 - 60 Hz animation loop, auto power-down to 0% CPU when idle
-- 30 built-in themes, custom themes supported
-- Action buttons, icons, live progress bar, hover interactions
+- 56 built-in themes (28 palettes × dark/light), custom themes supported
+- Action buttons, icons, live/indeterminate progress bar, hover interactions
 - Per-toast alignment override on top of the global position
+- `"auto"` theme follows the Windows light/dark setting
+- Reduced-motion and high-contrast awareness; Esc-to-dismiss (opt-in)
 
 ## Quick Start
 
@@ -65,7 +67,7 @@ Toastify.SetConfig({
 | `Toastify.theme` | `"dark"` | Default theme for new toasts |
 | `Toastify.position` | `"top-right"` | Default alignment |
 | `Toastify.hoverPauseEnabled` | `true` | Pause auto-dismiss timer while hovered |
-| `Toastify.maxToasts` | `8` | Hard cap; oldest toast exits when exceeded |
+| `Toastify.maxToasts` | `8` | Hard cap; lowest-`priority` toast exits when exceeded |
 | `designScale` (via SetConfig) | `1` | Global multiplier for all design points |
 
 ## Show Methods
@@ -79,7 +81,8 @@ Toastify.SetConfig({
 | `Toastify.Info(title, body?, actions?, opts?)` | Blue info toast |
 | `Toastify.Custom(opts)` | Full control via one object (`title`, `body`, `actions`, ...) |
 | `Toastify.ShowView(viewItems, opts?)` | Custom GDI+ rendered views |
-| `Toastify.DismissAll()` | Dismiss all visible toasts |
+| `Toastify.DismissAll()` | Dismiss all toasts (out animation respected) |
+| `Toastify.KillAll()` | Remove all toasts instantly, no animation |
 
 ## Per-Toast Alignment Override
 
@@ -115,6 +118,7 @@ Toastify.Show("Title", "Body", [], {
     icon: "success",                 ; Icon preset ("success", "error", "warning", "info")
     showClose: true,                 ; Show close button
     showProgress: true,              ; Show progress bar
+    progressBarWaitPosition: true,   ; Bar starts after entrance; false = from creation (duration auto-clamped to entrance+exit)
     permanent: false,                ; Never auto-dismiss
     autoDismiss: true,               ; Allow auto-dismiss when progress completes
     opacity: 1.0,                    ; Base opacity (0.0-1.0)
@@ -148,6 +152,7 @@ Toastify.Show("Title", "Body", [], {
 | `opacityOnHover` | bool | `false` | Fade to 100% opacity on hover |
 | `showClose` | bool | `true` | X button, top-right |
 | `showProgress` | bool | `false` | Thin progress bar at the bottom |
+| `progressBarWaitPosition` | bool | `true` | `true`: bar advances once the toast reaches its position (after entrance). `false`: bar runs from creation; `duration` is clamped to `2 × animDuration` (entrance + exit) to avoid flicker |
 | `position` | string | global | Per-toast alignment override |
 | `icon` | string | `""` | `"success"`, `"error"`, `"warning"`, `"info"` |
 | `width` | int | `340` | Toast width (design px at 96 DPI; scaled by monitor DPI) |
@@ -159,6 +164,17 @@ Toastify.Show("Title", "Body", [], {
 | `repoDuration` | int (ms) | `300` | Reorder animation length |
 | `onClick` | callback | — | Fires when toast body clicked (not buttons) |
 | `onClose` | callback | — | Fires when toast is closed |
+| `sound` | string | `""` | System sound alias, e.g. `"SystemAsterisk"`, `"SystemExclamation"` |
+| `tag` | string | `""` | Group/dedupe key — same tag replaces the existing toast |
+| `priority` | int | `0` | Higher priority survives eviction when `maxToasts` or screen space is hit |
+| `indeterminate` | bool | `false` | Pulsing progress bar; forces `showProgress`, `autoDismiss := false` |
+| `progressHeight` | int | global (`3`) | Progress bar thickness (design px) |
+| `progressStriped` | bool | `false` | Diagonal stripes over the progress fill |
+| `flashOnComplete` | bool | `false` | Accent border pulse when the bar completes |
+| `blurBehind` | bool | `false` | Real backdrop blur: captures the screen behind the window, blurs it (downscale/upscale), clips it to the rounded card. Refreshed ~3×/s while visible |
+| `marginX` | int | `-1` | Per-toast horizontal margin; `-1` = global `Toastify.marginX` |
+| `marginY` | int | `-1` | Per-toast vertical margin; `-1` = global `Toastify.marginY` |
+| `spacing` | int | `-1` | Per-toast stack gap; `-1` = global `Toastify.spacing` |
 
 ## Constants
 
@@ -168,7 +184,7 @@ Toastify.Show("Title", "Body", [], {
 | `Toastify.ANIM_STYLE` | `SLIDE`, `FADE`, `ZOOM`, `ROTATE` |
 | `Toastify.ENTRANCE` | `AUTO`, `LEFT`, `RIGHT`, `TOP`, `BOTTOM` |
 | `Toastify.EASING` | `LINEAR`, `EASE_OUT_CUBIC`, `BOUNCE_IN`, `BOUNCE_OUT`, `ELASTIC_OUT`, `DECELERATE`, and 30+ more |
-| `Toastify.THEMES` | `DARK`, `LIGHT`, `SUCCESS`, `ERROR`, `WARNING`, `INFO`, `NEON`, `VAPOR`, `CYBERPUNK`, `RETRO`, `GLASS`, `MINIMAL`, `PASTEL`, `FLAT`, `MIDNIGHT`, `FOREST` (each with `_LIGHT` variant) |
+| `Toastify.THEMES` | `AUTO`, `DARK`, `LIGHT`, `SUCCESS`, `ERROR`, `WARNING`, `INFO`, `NEON`, `VAPOR`, `CYBERPUNK`, `RETRO`, `GLASS`, `MINIMAL`, `PASTEL`, `FLAT`, `MIDNIGHT`, `FOREST`, `DRACULA`, `TOKYO_NIGHT`, `CATPPUCCIN_MOCHA`, `CATPPUCCIN_LATTE`, `NORD`, `SOLARIZED`, `GRUVBOX`, `ONE_DARK`, `ONE_LIGHT`, `SYNTHWAVE`, `MONOKAI`, `MATERIAL_YOU`, `CARBON`, `AYU` (each with `_LIGHT` variant) |
 | `Toastify.QUALITY` | `LOW`, `MEDIUM`, `HIGH` |
 | `Toastify.PRIORITY` | `IDLE`, `BELOW_NORMAL`, `NORMAL`, `ABOVE_NORMAL`, `HIGH`, `REALTIME` |
 
@@ -193,8 +209,9 @@ animStyle: [
 `EASE_IN/OUT/IN_OUT_BACK/SINE/EXPO/CIRC`, `BOUNCE`, `BOUNCE_IN/OUT/IN_OUT`,
 `ELASTIC_IN/OUT/IN_OUT`, `DECELERATE`, `EASE`, `EASE_IN/OUT`, and more.
 
-> **Known issue:** `ROTATE`/`ZOOM` animations may briefly flicker a dark background.
-> Caused by a misconfigured container-window size during the transform frames.
+> **Known issue:** ~~`ROTATE`/`ZOOM` animations may briefly flicker a dark
+> background.~~ Fixed: `ResizeBuffer` clears the canvas and invalidates the
+> cached alpha before the first transformed frame.
 
 ## Actions & Callbacks
 
@@ -225,8 +242,26 @@ t := Toastify.Show("Hello", "World")
 t.Close()          ; Force close (user-initiated exit)
 t.StartExit()      ; Begin exit animation
 t.Dismiss(true)    ; Instant removal (no animation)
+t.Invalidate()     ; Re-measure + redraw (after live style edits)
 t.position := Toastify.ALIGN.TOP_LEFT   ; Move it live (reflow applies)
 ```
+
+Batch and group control:
+
+```autohotkey
+Toastify.DismissAll()            ; Respects out animations on every toast
+Toastify.KillAll()               ; Instant removal of all toasts, including mid-exit ones
+Toastify.DismissGroup("batch-1") ; Graceful exit for every toast with tag "batch-1"
+Toastify.KillGroup("batch-1")    ; Instant removal for a tag group
+```
+
+Global behavior flags (set before/after `Start`):
+
+| Flag | Default | Effect |
+|---|---|---|
+| `Toastify.escEnabled` | `false` | Opt-in global `Esc` hotkey dismisses the newest toast |
+| `Toastify.reducedMotion` | auto | Read from Windows `SPI_GETCLIENTAREAANIMATION`; toasts land instantly when animations are off |
+| `Toastify.highContrast` | auto | Read from `SPI_GETHIGHCONTRAST`; default theme becomes `"minimal"` while active |
 
 ## Hover Behavior
 
@@ -239,12 +274,41 @@ t.position := Toastify.ALIGN.TOP_LEFT   ; Move it live (reflow applies)
 - A periodic rect check clears stuck hover state (WM_MOUSELEAVE on layered
   windows is unreliable).
 
+## Progress Bar Timing
+
+By default (`progressBarWaitPosition: true`) the progress bar starts advancing
+only after the entrance animation completes — it sits at 0 while the toast
+slides/fades in.
+
+With `progressBarWaitPosition: false` the bar starts advancing the moment the
+toast is created, so it is already partway when the toast lands. To avoid a
+visible flicker (bar finishing before the toast has even settled, or cutting
+into the exit), `duration` is automatically raised to at least
+`2 × animDuration` (entrance + exit) whenever the requested value is shorter.
+
+```autohotkey
+; Bar runs from creation; 200ms becomes 600ms (2 × 300ms anim)
+Toastify.Show("Title", "Body", , {
+    showProgress: true,
+    progressBarWaitPosition: false,
+    animDuration: 300,
+    duration: 200,
+})
+```
+
 ## Themes
 
-30 built-in themes, each with a `_LIGHT` variant:
+56 built-in themes (28 palettes × dark/light) plus `"auto"`, which follows
+the Windows app theme (`AppsUseLightTheme`):
 
 `dark`, `light`, `success`, `error`, `warning`, `info`, `midnight`, `forest`,
-`neon`, `vapor`, `cyberpunk`, `retro`, `glass`, `minimal`, `pastel`, `flat`.
+`neon`, `vapor`, `cyberpunk`, `retro`, `glass`, `minimal`, `pastel`, `flat`,
+`dracula`, `tokyo-night`, `catppuccin-mocha`, `catppuccin-latte`, `nord`,
+`solarized`, `gruvbox`, `one-dark`, `one-light`, `synthwave`, `monokai`,
+`material-you`, `carbon`, `ayu`.
+
+Neon-themed palettes (`neon`, `vapor`, `cyberpunk`, `synthwave`) enable an
+outer glow by default (`glow: true` → wider shadow spread).
 
 ### Custom themes
 
@@ -265,9 +329,19 @@ Toastify.RegisterTheme("ocean", {
 | `progress` | no | Progress bar fill; defaults to accent |
 | `progressBg` | no | Progress bar track; auto-derived if omitted (33% white on dark, 20% black on light) |
 | `border` | no | Border color; defaults to accent at 80% |
+| `borderWidth` | no | Border thickness; `0` for glass/minimal/flat |
+| `gradientType` | no | `"linear"` (default) or `"radial"` (baked concentric rings) |
+| `gradientAngle` | no | Linear gradient angle in degrees; `90` = top→bottom |
+| `glow` | no | `true` → wider soft shadow spread (neon look) |
 
 Button label contrast and progress-bar track/fill contrast are computed
 automatically for every theme, including custom ones.
+
+### Indeterminate progress
+
+With `indeterminate: true` the bar shows a pulsing 15%→85% cycle and never
+completes; `autoDismiss` is forced off. Combine with `progressStriped` and
+`flashOnComplete` for richer feedback.
 
 ## Demo
 

@@ -2551,6 +2551,32 @@ Gdip_DeletePath(pPath)
 	return DllCall("gdiplus\GdipDeletePath", "UPtr", pPath)
 }
 
+Gdip_AddPathArc(pPath, x, y, w, h, StartAngle, SweepAngle)
+{
+	return DllCall("gdiplus\GdipAddPathArc", "UPtr", pPath, "Float", x, "Float", y, "Float", w, "Float", h, "Float", StartAngle, "Float", SweepAngle)
+}
+
+Gdip_ClosePathFigure(pPath)
+{
+	return DllCall("gdiplus\GdipClosePathFigure", "UPtr", pPath)
+}
+
+Gdip_DrawPath(pGraphics, pPen, pPath)
+{
+	return DllCall("gdiplus\GdipDrawPath", "UPtr", pGraphics, "UPtr", pPen, "UPtr", pPath)
+}
+
+; Rounded rectangle as one single GraphicsPath (shared by fill and stroke)
+; so both use identical coordinates. Consecutive arcs auto-connect with lines.
+Gdip_AddPathRoundedRect(pPath, x, y, w, h, r)
+{
+	Gdip_AddPathArc(pPath, x, y, 2*r, 2*r, 180, 90)
+	Gdip_AddPathArc(pPath, x+w-(2*r), y, 2*r, 2*r, 270, 90)
+	Gdip_AddPathArc(pPath, x+w-(2*r), y+h-(2*r), 2*r, 2*r, 0, 90)
+	Gdip_AddPathArc(pPath, x, y+h-(2*r), 2*r, 2*r, 90, 90)
+	return Gdip_ClosePathFigure(pPath)
+}
+
 ;#####################################################################################
 ; Quality functions
 ;#####################################################################################

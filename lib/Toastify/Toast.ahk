@@ -2,6 +2,9 @@ class Toast {
     title := ""
     body := ""
     actions := []
+    tag := ""
+    priority := 0
+    sound := ""
     width := 340
     height := 120
     duration := 3000
@@ -12,6 +15,18 @@ class Toast {
     designScale := 1
     showClose := true
     showProgress := true
+    indeterminate := false
+    progressHeight := 0
+progressStriped := false
+flashOnComplete := false
+    marginX := -1
+    marginY := -1
+    spacing := -1
+    _stagger := 0
+    _flashUntil := 0
+    ; true: la barra avanza al llegar a posición (tras entrada).
+    ; false: avanza desde la creación; duration se clampa a entrada+salida (evita flicker).
+    progressBarWaitPosition := true
     hwnd := 0
     gui := 0
     hbm := 0
@@ -22,12 +37,12 @@ class Toast {
     exitTargetY := 0
     exitStartX := 0
     exitStartY := 0
-    static _cfgKeys := ["width", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
+    static _cfgKeys := ["width", "minHeight", "fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
         "paddingX", "paddingY", "iconSize", "iconScale", "designScale", "borderRadius", "borderWidth", "animDuration", "animEasing",
-        "animStyle", "animEntrance", "renderQuality", "repoDuration", "rotationDegree"]
+        "animStyle", "animEntrance", "renderQuality", "repoDuration", "rotationDegree", "progressHeight"]
     static _styleKeys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
         "paddingX", "paddingY", "iconSize", "iconScale", "designScale", "borderRadius", "borderWidth", "animDuration", "renderQuality",
-        "rotationDegree"]
+        "rotationDegree", "progressHeight"]
     pBitmapCache := 0
     GCache := 0
     cacheDirty := true
@@ -85,6 +100,8 @@ class Toast {
     ; progressPaused := false
     ; progressPauseTime := 0
     lastProgress := 0.0
+    _lastDrawnProgress := -1
+    _lastProgressDraw := 0
     creationTime := 0
     clickRegions := []
     hovered := false
@@ -104,6 +121,8 @@ class Toast {
     _hoverOpacityDur := 180
     _windowShown := false
     _initialized := false
+    _winX := 0
+    _winY := 0
 
     __New(title, body, actions, opts) {
         dpi := 1.0
@@ -131,6 +150,8 @@ class Toast {
                     this.showClose := opts.showClose
                 if opts.HasProp("showProgress")
                     this.showProgress := opts.showProgress
+                if opts.HasProp("progressBarWaitPosition")
+                    this.progressBarWaitPosition := opts.progressBarWaitPosition
                 if opts.HasProp("onClick")
                     this.onClickCallback := opts.onClick
                 if opts.HasProp("onClose")
@@ -139,7 +160,30 @@ class Toast {
                     this._baseOpacity := opts.opacity
                 if opts.HasProp("opacityOnHover")
                     this.opacityOnHover := !!opts.opacityOnHover
-
+                if opts.HasProp("tag")
+                    this.tag := opts.tag
+                if opts.HasProp("priority")
+                    this.priority := opts.priority
+                if opts.HasProp("sound")
+                    this.sound := opts.sound
+                if opts.HasProp("indeterminate") {
+                    this.indeterminate := !!opts.indeterminate
+                    if (this.indeterminate) {
+                        this.showProgress := true
+                        this.autoDismiss := false
+                        this.progressBarWaitPosition := false
+                    }
+                }
+                if opts.HasProp("marginX")
+                    this.marginX := opts.marginX
+                if opts.HasProp("marginY")
+                    this.marginY := opts.marginY
+                if opts.HasProp("spacing")
+                    this.spacing := opts.spacing
+                if opts.HasProp("progressStriped")
+                    this.progressStriped := !!opts.progressStriped
+                if opts.HasProp("flashOnComplete")
+                    this.flashOnComplete := !!opts.flashOnComplete
             }
             for key in Toast._styleKeys
                 try
@@ -185,16 +229,55 @@ class Toast {
             }
         }
         this.creationTime := A_TickCount
+        ; progressBarWaitPosition=false: la barra corre desde la creación, pero
+        ; nunca puede terminar antes de entrada+salida (flicker).
+        if (this.showProgress && this.duration > 0 && !this.progressBarWaitPosition && !this.indeterminate)
+            this.duration := Max(this.duration, 2 * this.animDuration)
         ; DPI of the destination monitor, computed by __createToast (opts.dpi).
         this._dpi := (IsObject(opts) && opts.HasProp("dpi")) ? opts.dpi : ToastDPI.Primary()
         this._saveBaseCfg()
         this.__createWindow()
     }
 
+    __createBgBrush(pal) {
+        ; T4: gradientType "linear" (default) | "radial"; gradientAngle (deg,
+        ; 90 = top→bottom, current default). Raw DllCall — wrapper lacks
+        ; radial/with-angle creators. Fallback linear on any failure.
+        rect := Buffer(16, 0)
+        NumPut("float", 0, rect, 0)
+        NumPut("float", 0, rect, 4)
+        NumPut("float", this.width, rect, 8)
+        NumPut("float", this.height, rect, 12)
+        gradType := pal.HasOwnProp("gradientType") ? pal.gradientType : "linear"
+        if (gradType = "radial") {
+            ; Radial: esta gdiplus no exporta GdipCreatePathGradientBrush →
+            ; se hornea un bitmap de anillos concéntricos en __initThemeCache.
+            ; Acá solo devolvemos el color interior como base.
+            return Gdip_BrushCreateSolid(pal.bg1 & 0xFFFFFF)
+        } else {
+            angle := pal.HasOwnProp("gradientAngle") ? pal.gradientAngle : 90
+            if (angle != 90) {
+                hBrush := 0
+                hr := DllCall("gdiplus\GdipCreateLineBrushFromRectWithAngle", "ptr", rect
+                    , "uint", pal.bg1, "uint", pal.bg2, "float", angle, "int", 0, "int", 1, "ptr*", &hBrush)
+                if (hr = 0 && hBrush)
+                    return hBrush
+            }
+        }
+        return Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
+    }
     __deleteThemeCache() {
         if (this._bgBrush) {
             Gdip_DeleteBrush(this._bgBrush)
             this._bgBrush := 0
+        }
+        if (this._bgRadialBitmap) {
+            Gdip_DisposeImage(this._bgRadialBitmap)
+            this._bgRadialBitmap := 0
+        }
+        if (this._shadowBitmap) {
+            Gdip_DisposeImage(this._shadowBitmap)
+            this._shadowBitmap := 0
         }
         if (this._closeHoverBrush) {
             Gdip_DeleteBrush(this._closeHoverBrush)
@@ -216,10 +299,59 @@ class Toast {
     }
 
     __initThemeCache(pal) {
-        this._bgBrush := Gdip_CreateLineBrushFromRect(0, 0, this.width, this.height, pal.bg1, pal.bg2, 1, 1)
+        this._bgBrush := this.__createBgBrush(pal)
         if (!this._bgBrush)
             this._bgBrush := Gdip_BrushCreateSolid(pal.bg1 & 0xFFFFFF)
         this._bgBrushTheme := this.theme
+
+        ; ── Radial baked bitmap (anillos concéntricos bg1 centro → bg2 borde) ──
+        if (pal.HasOwnProp("gradientType") && pal.gradientType = "radial") {
+            this._bgRadialBitmap := Gdip_CreateBitmap(this.width, this.height)
+            G := Gdip_GraphicsFromImage(this._bgRadialBitmap)
+            Gdip_SetSmoothingMode(G, 2)
+            w := this.width, h := this.height
+            steps := 14
+            cx := w / 2, cy := h / 2
+            maxR := Sqrt(cx * cx + cy * cy)
+            c1 := pal.bg1 & 0xFFFFFF, c2 := pal.bg2 & 0xFFFFFF
+            loop steps {
+                t := (A_Index - 1) / (steps - 1)
+                r := maxR * (1 - (A_Index - 1) / steps)
+                r2 := Max(1, r + maxR / steps)
+                col := 0xFF000000
+                col |= Round((((c1 >> 16) & 0xFF) * (1 - t) + ((c2 >> 16) & 0xFF) * t)) << 16
+                col |= Round((((c1 >> 8) & 0xFF) * (1 - t) + ((c2 >> 8) & 0xFF) * t)) << 8
+                col |= Round(((c1 & 0xFF) * (1 - t) + (c2 & 0xFF) * t))
+                br := Gdip_BrushCreateSolid(col)
+                Gdip_FillEllipse(G, br, cx - r2, cy - r2, 2 * r2, 2 * r2)
+                Gdip_DeleteBrush(br)
+            }
+            Gdip_DeleteGraphics(G)
+        } else
+            this._bgRadialBitmap := 0
+
+        ; ── FX1/FX2: sombra suave horneada en bitmap (anillos concéntricos,
+        ;    alpha falloff). 1 DrawImage por frame, no N fills. ──
+        base := pal.shadow & 0xFFFFFF
+        ba := (pal.shadow >> 24) & 0xFF
+        layers := pal.HasOwnProp("glow") && pal.glow ? 7 : 5
+        spread := pal.HasOwnProp("glow") && pal.glow ? 2.2 : 1.4
+        d := this.dpiFactor
+        this._shadowPad := 0
+        this._shadowBitmap := Gdip_CreateBitmap(this.width, this.height)
+        G := Gdip_GraphicsFromImage(this._shadowBitmap)
+        Gdip_SetSmoothingMode(G, 2)
+        loop layers {
+            k := A_Index - 1
+            a := Floor(ba * (0.72 - 0.55 * k / Max(1, layers - 1)))
+            a := Max(3, Min(255, a))
+            o := (2 + k * spread * 0.6) * d
+            r := this.borderRadius + 2 * k * d
+            br := Gdip_BrushCreateSolid((a << 24) | base)
+            Gdip_FillRoundedRectangle(G, br, o, o, this.width - 2 * o, this.height - 2 * o, r)
+            Gdip_DeleteBrush(br)
+        }
+        Gdip_DeleteGraphics(G)
 
         ; 2) Circular halo of the close button on hover (constant)
         this._closeHoverBrush := Gdip_BrushCreateSolid(0x33FFFFFF)
@@ -229,14 +361,15 @@ class Toast {
         this._closePenNormal := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpiFactor)
         this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpiFactor)
 
-        ; 4) Custom border (only if borderWidth > 0)
-        if (this.borderWidth > 0) {
-            this._customBorderPen := Gdip_CreatePen(pal.border, this.borderWidth)
-            this._customBorderTheme := this.theme
-        } else {
-            this._customBorderPen := 0
-            this._customBorderTheme := ""
-        }
+        ; 4) Custom border pen. Width scaled, always created: centered pen
+        ;    straddles the path, so path must be inset by half the pen width
+        ;    to keep the full stroke inside the bitmap.
+        if (this.borderWidth > 0)
+            this._borderPenW := this.borderWidth
+        else
+            this._borderPenW := Round(pal.borderWidth * this.dpiFactor * this._baseCfg.designScale)
+        this._customBorderPen := Gdip_CreatePen(pal.border, this._borderPenW)
+        this._customBorderTheme := this.theme
     }
     _applyDpi() {
         ; Real DPI of the destination monitor (computed by __createToast before
@@ -266,7 +399,7 @@ class Toast {
         extras := 0
         if (this.actions.Length > 0)
             extras += 38 * d
-        if (this.showProgress && this.duration > 0)
+        if (this.HasProgress())
             extras += 12 * d
         textW := this.width - this.paddingX * 2
         if (this.icon != "" && this.icon != "none")
@@ -290,15 +423,56 @@ class Toast {
             h := Max(h, this.iconSize * this.iconScale + this.paddingY + extras)
         return Ceil(h)
     }
+    static _fontCache := Map()
+    static _famCache := Map()
+    static _fmtCache := Map()
+    static __font(family, size, style) {
+        key := family "|" size "|" style
+        if Toast._fontCache.Has(key)
+            return Toast._fontCache[key]
+        hFam := Toast.__family(family)
+        if !hFam
+            return 0
+        h := Gdip_FontCreate(hFam, size, style)
+        if h
+            Toast._fontCache[key] := h
+        return h
+    }
+    static __family(family) {
+        if Toast._famCache.Has(family)
+            return Toast._famCache[family]
+        h := Gdip_FontFamilyCreate(family)
+        if h
+            Toast._famCache[family] := h
+        return h
+    }
+    static __format(flags) {
+        if Toast._fmtCache.Has(flags)
+            return Toast._fmtCache[flags]
+        h := Gdip_StringFormatCreate(flags)
+        if h
+            Toast._fmtCache[flags] := h
+        return h
+    }
+    static FreeFontCache() {
+        for k, h in Toast._fontCache
+            Gdip_DeleteFont(h)
+        for k, h in Toast._famCache
+            Gdip_DeleteFontFamily(h)
+        for k, h in Toast._fmtCache
+            Gdip_DeleteStringFormat(h)
+        Toast._fontCache := Map()
+        Toast._famCache := Map()
+        Toast._fmtCache := Map()
+    }
     __measureTextH(G, text, w, fontSize, weight) {
         if (!G)
             return 0
-        hFam := Gdip_FontFamilyCreate(this.fontName)
-        if (!hFam)
-            return 0
         style := (weight = "Bold") ? 1 : (weight = "Italic") ? 2 : (weight = "BoldItalic") ? 3 : 0
-        hFont := Gdip_FontCreate(hFam, fontSize, style)
-        hFmt := Gdip_StringFormatCreate(0x4000)
+        hFont := Toast.__font(this.fontName, fontSize, style)
+        if (!hFont)
+            return 0
+        hFmt := Toast.__format(0x4000)
         layout := Buffer(16)
         NumPut("float", 0, layout, 0)
         NumPut("float", 0, layout, 4)
@@ -306,9 +480,6 @@ class Toast {
         NumPut("float", 10000, layout, 12)
         ms := Gdip_MeasureString(G, text, hFont, hFmt, &layout)
         h := IsObject(ms) ? 0 : Ceil(StrSplit(ms, "|")[4])
-        Gdip_DeleteFontFamily(hFam)
-        Gdip_DeleteFont(hFont)
-        Gdip_DeleteStringFormat(hFmt)
         return h
     }
     _saveBaseCfg() {
@@ -316,7 +487,7 @@ class Toast {
         ; (as they arrived from ToastConfig/opts) without scaling.
         this._baseCfg := {
             width: this.width,
-            minHeight: Toastify.config.minHeight,
+            minHeight: this.minHeight,
             fontSizeTitle: this.fontSizeTitle,
             fontSizeBody: this.fontSizeBody,
             paddingX: this.paddingX,
@@ -380,13 +551,32 @@ class Toast {
         d := this.dpiFactor
         this.clickRegions := []
         Gdip_GraphicsClear(this.GCache)
-        Gdip_FillRoundedRectangle(this.GCache, pal.shadowBrush, 4 * d, 4 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius)
-        ; Gradient brush cached in __initThemeCache
-        Gdip_FillRoundedRectangle(this.GCache, this._bgBrush, 0, 0, this.width, this.height, this.borderRadius)
-        if (this.borderWidth > 0)
-            Gdip_DrawRoundedRectangle(this.GCache, this._customBorderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
-        else
-            Gdip_DrawRoundedRectangle(this.GCache, pal.borderPen, 2 * d, 2 * d, this.width - 4 * d, this.height - 4 * d, this.borderRadius - 1)
+        ; FX1: sombra suave horneada (blit 1:1, sin scale)
+        if (this._shadowBitmap)
+            Gdip_DrawImage(this.GCache, this._shadowBitmap, 0, 0, this.width, this.height
+                , 0, 0, this.width, this.height)
+        ; Fill + border share ONE path with identical coordinates. Path inset by
+        ; half the pen width so the centered pen stroke stays fully inside the
+        ; bitmap (no clipping on straight edges or corner arcs).
+        bw := this._borderPenW
+        p := Gdip_CreatePath()
+        Gdip_AddPathRoundedRect(p, bw / 2, bw / 2, this.width - bw, this.height - bw, this.borderRadius)
+        Gdip_FillPath(this.GCache, this._bgBrush, p)
+        if (this._bgRadialBitmap) {
+            Gdip_SetClipPath(this.GCache, p, 0)
+            Gdip_DrawImage(this.GCache, this._bgRadialBitmap, 0, 0, this.width, this.height)
+            Gdip_ResetClip(this.GCache)
+        }
+        if (bw > 0)
+            Gdip_DrawPath(this.GCache, this._customBorderPen, p)
+        Gdip_DeletePath(p)
+
+        ; FX5: flash — accent border pulse for 400ms after progress completes
+        if (this.flashOnComplete && this._flashUntil > A_TickCount) {
+            fp := Gdip_CreatePen(pal.accent, bw + 3 * d)
+            Gdip_DrawRoundedRectangle(this.GCache, fp, bw / 2, bw / 2, this.width - bw, this.height - bw, this.borderRadius)
+            Gdip_DeletePen(fp)
+        }
 
         iconX := this.paddingX
         iconSize := this.iconSize * this.iconScale
@@ -396,7 +586,7 @@ class Toast {
             avail := this.height - bodyY - this.paddingY
             if (this.actions.Length > 0)
                 avail -= 38 * d
-            if (this.showProgress && this.duration > 0)
+            if (this.HasProgress())
                 avail -= 12 * d
             textBlockH := (bodyY + Max(20 * d, avail)) - this.paddingY
             iconY := this.paddingY + Max(0, Floor((textBlockH - iconSize) / 2))
@@ -427,7 +617,7 @@ class Toast {
             for r in this._buttonClickRegions
                 this.clickRegions.Push(r)
 
-        if (this.showProgress && this.duration > 0)
+        if (this.HasProgress())
             this.__drawProgress()
         this._compositeDirty := true
     }
@@ -436,8 +626,9 @@ class Toast {
         if (this._progressBitmap)
             return
         d := this.dpiFactor
+        ph := (this.progressHeight > 0) ? this.progressHeight : Toastify.config.progressHeight
         this._progressW := this.width - 28 * d
-        this._progressH := 3 * d
+        this._progressH := Max(1, Round(ph * d))
         this._progressBitmap := Gdip_CreateBitmap(this._progressW, this._progressH)
         if (!this._progressBitmap)
             return
@@ -446,8 +637,11 @@ class Toast {
     }
 
     __drawProgress() {
-        if (!(this.showProgress && this.duration > 0))
+        if (!this.HasProgress())
             return
+        if (this.progress = this._lastDrawnProgress)
+            return
+        this._lastDrawnProgress := this.progress
         pal := ToastTheme.palette(this.theme)
         d := this.dpiFactor
         this.__ensureProgressBitmap()
@@ -456,6 +650,15 @@ class Toast {
         if (this.progress > 0) {
             fillWidth := this._progressW * this.progress
             Gdip_FillRoundedRectangle(this._GProgress, pal.progressFillBrush, 0, 0, fillWidth, this._progressH, 2 * d)
+            ; FX5: diagonal stripes over the fill (opt-in progressStriped)
+            if (this.progressStriped) {
+                stripePen := Gdip_CreatePen(0x26FFFFFF, 3 * d)
+                loop Ceil(fillWidth / (8 * d)) + 1 {
+                    sx := (A_Index - 1) * 8 * d
+                    Gdip_DrawLine(this._GProgress, stripePen, sx, 0, sx + this._progressH, this._progressH)
+                }
+                Gdip_DeletePen(stripePen)
+            }
         }
         Gdip_DrawImage(this.GCache, this._progressBitmap, 14 * d, this.height - this._progressH - 7 * d
             , this._progressW, this._progressH, 0, 0, this._progressW, this._progressH)
@@ -485,7 +688,7 @@ class Toast {
             availableHeight := this.height - bodyY - this.paddingY
             if (this.actions.Length > 0)
                 availableHeight -= 38 * d
-            if (this.showProgress && this.duration > 0)
+            if (this.HasProgress())
                 availableHeight -= 12 * d
             bodyHeight := Max(20 * d, availableHeight)
             bodyOpts := "x" textStartX " y" bodyY " w" titleWidth " h" bodyHeight " c" Format("{:x}", pal.fg) " r4 s" this.fontSizeBody " " this.fontWeightBody
@@ -500,8 +703,7 @@ class Toast {
             btnFg := ToastTheme.onAccent(pal.accent)
             ; Custom buttons: measure each label → width by text, no wrap.
             ; If the row doesn't fit, shrink the button font (one pass).
-            hFam := Gdip_FontFamilyCreate(font)
-            hFmt := Gdip_StringFormatCreate(0x1000)
+            hFmt := Toast.__format(0x1000)
             layout := Buffer(16)
             NumPut("float", 0, layout, 0)
             NumPut("float", 0, layout, 4)
@@ -514,9 +716,8 @@ class Toast {
                 total := 0
                 for act in this.actions {
                     label := act.HasProp("text") ? act.text : act[1]
-                    hFont := Gdip_FontCreate(hFam, btnFont, 1)
+                    hFont := Toast.__font(font, btnFont, 1)
                     ms := Gdip_MeasureString(this._GText, label, hFont, hFmt, &layout)
-                    Gdip_DeleteFont(hFont)
                     w := Ceil(Number(StrSplit(ms, "|")[3])) + 20 * d
                     widths.Push(w)
                     total += w
@@ -525,8 +726,6 @@ class Toast {
                     break
                 btnFont := Max(8, Floor(btnFont * availW / total))
             }
-            Gdip_DeleteFontFamily(hFam)
-            Gdip_DeleteStringFormat(hFmt)
             leftover := Max(0, availW - total)
             factor := (total > availW) ? (availW / total) : 1
             share := Floor(leftover / this.actions.Length)
@@ -654,27 +853,32 @@ class Toast {
             
         }
         UpdateLayeredWindow(this.hwnd, this.hdc, wx, wy, w, h, alpha)
+        this._winX := wx
+        this._winY := wy
     }
+
     DrawIcon(x, y, size, iconType, pal) {
+        ; Dot radius scales with DPI (was hardcoded 2px → thin at 200%)
+        dot := Max(3 * this.dpiFactor, size * 0.125)
         switch iconType {
             case "success":
                 Gdip_FillEllipse(this.GCache, pal.accentBrush, x, y, size, size)
                 points := x "," (y + size / 2) "|" (x + size / 3) "," (y + size * 2 / 3) "|" (x + size * 4 / 5) "," (y +
                     size / 4)
-                Gdip_DrawLines(this.GCache, pal.iconWhitePen, points)
+                Gdip_DrawLines(this.GCache, pal.iconFgPen, points)
             case "error":
                 Gdip_FillEllipse(this.GCache, pal.accentBrush, x, y, size, size)
-                Gdip_DrawLine(this.GCache, pal.iconWhitePen, x + size / 4, y + size / 4, x + size * 3 / 4, y + size * 3 / 4)
-                Gdip_DrawLine(this.GCache, pal.iconWhitePen, x + size * 3 / 4, y + size / 4, x + size / 4, y + size * 3 / 4)
+                Gdip_DrawLine(this.GCache, pal.iconFgPen, x + size / 4, y + size / 4, x + size * 3 / 4, y + size * 3 / 4)
+                Gdip_DrawLine(this.GCache, pal.iconFgPen, x + size * 3 / 4, y + size / 4, x + size / 4, y + size * 3 / 4)
             case "warning":
                 points := (x + size / 2) "," y "|" x "," (y + size) "|" (x + size) "," (y + size)
                 Gdip_FillPolygon(this.GCache, pal.accentBrush, points)
-                Gdip_DrawLine(this.GCache, pal.iconWhitePen2, x + size / 2, y + size / 4, x + size / 2, y + size / 2)
-                Gdip_FillEllipse(this.GCache, pal.iconWhiteBrush, x + size / 2 - 2, y + size * 2 / 3, 4, 4)
+                Gdip_DrawLine(this.GCache, pal.iconFgPen2, x + size / 2, y + size / 4, x + size / 2, y + size / 2)
+                Gdip_FillEllipse(this.GCache, pal.iconFgBrush, x + size / 2 - dot / 2, y + size * 2 / 3, dot, dot)
             case "info":
                 Gdip_FillEllipse(this.GCache, pal.accentBrush, x, y, size, size)
-                Gdip_FillEllipse(this.GCache, pal.iconWhiteBrush, x + size / 2 - 2, y + size / 4, 4, 4)
-                Gdip_DrawLine(this.GCache, pal.iconWhitePen2, x + size / 2, y + size / 2.5, x + size / 2, y + size * 3 / 4)
+                Gdip_FillEllipse(this.GCache, pal.iconFgBrush, x + size / 2 - dot / 2, y + size / 4, dot, dot)
+                Gdip_DrawLine(this.GCache, pal.iconFgPen2, x + size / 2, y + size / 2.5, x + size / 2, y + size * 3 / 4)
             default:
                 glyphCode := Toast.__glyphCode(iconType)
                 if (glyphCode != "") {
@@ -729,7 +933,7 @@ class Toast {
         accent := pal.accent & 0xFFFFFF
         if (this.closeHovered) {
             circleCol := 0xFF000000 | accent
-            glyphCol := this.__contrastOn(pal.accent) ? "ff0f172a" : "ffffffff"
+            glyphCol := Format("{:x}", ToastTheme.onAccent(pal.accent))
         } else {
             circleCol := 0x40000000 | accent
             glyphCol := Format("{:x}", pal.fg)
@@ -743,9 +947,8 @@ class Toast {
             code := Toast.__glyphCode("cross")
         glyph := Chr(code)
         s := 13 * d
-        hFam := Gdip_FontFamilyCreate(Toast.__iconFontName())
-        hFont := Gdip_FontCreate(hFam, s, 0)
-        hFmt := Gdip_StringFormatCreate(0x1000)
+        hFont := Toast.__font(Toast.__iconFontName(), s, 0)
+        hFmt := Toast.__format(0x1000)
         layout := Buffer(16)
         NumPut("float", 0, layout, 0)
         NumPut("float", 0, layout, 4)
@@ -756,11 +959,7 @@ class Toast {
         gx := (this._closeW - p[3]) / 2 + 0.5 * d
         gy := (this._closeH - p[4]) / 2 + 1.0 * d
         Gdip_TextToGraphics(this._GClose, glyph, "x" gx " y" gy " c" glyphCol " s" s, Toast.__iconFontName(), this._closeW, this._closeH)
-        Gdip_DeleteFontFamily(hFam)
-        Gdip_DeleteFont(hFont)
-        Gdip_DeleteStringFormat(hFmt)
     }
-    __contrastOn(c) => ToastTheme.luminance(c) > 0.4
     __blitClose() {
         if (!this._closeBitmap)
             return
@@ -788,7 +987,6 @@ class Toast {
         pal := ToastTheme.palette(this.theme)
         this.__renderCloseBitmap(pal)
         this.__blitClose()
-        this.cacheDirty := true
         this._compositeDirty := true
         this.Draw()
     }
@@ -808,48 +1006,31 @@ class Toast {
                 return true
         return false
     }
-    InitAnimation() {
+    HasProgress() => this.showProgress && (this.duration > 0 || this.indeterminate)
+    AnimateIn() {
         this._hasSlide := this.HasAnim("slide")
         this._hasFade := this.HasAnim("fade")
         this._hasZoom := this.HasAnim("zoom")
         this._hasRotate := this.HasAnim("rotate")
-        this.opacity := 1.0
-        this.scale := 1.0
-        ; this.rotation := 0.0
-        entrance := this.animEntrance
-        if (entrance == "auto")
-            entrance := Toast.__resolveEntrance(this.position)
-        this.resolvedEntrance := entrance
-        if (this._hasFade)
-            this.opacity := 0.0
-        if (this._hasZoom)
-            this.scale := 0.0
+        ; PR5: reduced motion → land instantly, no animation
+        if (Toastify.reducedMotion) {
+            this._hasSlide := this._hasFade := this._hasZoom := this._hasRotate := false
+            this.animState := "visible"
+            this.currentX := this.targetX
+            this.currentY := this.targetY
+            this.opacity := this._baseOpacity
+            this.scale := 1
+            this.rotation := 0
+            this._initialized := true
+            this.progressStartTime := A_TickCount
+            this.__playSound()
+            return
+        }
         if (this._hasRotate || this._hasZoom) {
             safetyFactor := 1.15
             diag := Sqrt(this.width ** 2 + this.height ** 2) * safetyFactor
             this.ResizeBuffer(Ceil(diag), Ceil(diag))
         }
-        startX := this.targetX
-        startY := this.targetY
-        if (this._hasSlide) {
-            entrance := this.resolvedEntrance
-            if (entrance == "right")
-                startX := A_ScreenWidth
-            else if (entrance == "left")
-                startX := -this.width
-            else if (entrance == "top")
-                startY := -this.height
-            else if (entrance == "bottom")
-                startY := A_ScreenHeight
-        } else {
-            startX := this.targetX
-            startY := this.targetY
-        }
-        this.currentX := startX
-        this.currentY := startY
-        this._initialized := true
-    }
-    AnimateIn() {
         this.resolvedEntrance := this.animEntrance
         if (this.resolvedEntrance == "auto")
             this.resolvedEntrance := Toast.__resolveEntrance(this.position)
@@ -880,28 +1061,22 @@ class Toast {
 
         this.currentX := this.animStartX
         this.currentY := this.animStartY
-        this._hasSlide := false
-        this._hasFade := false
-        this._hasZoom := false
-        this._hasRotate := false
-        for style in this.animStyle {
-            switch style {
-                case "slide": this._hasSlide := true
-                case "fade": this._hasFade := true
-                case "zoom": this._hasZoom := true
-                case "rotate": this._hasRotate := true
-            }
-        }
         this.opacity := this._hasFade ? 0 : this._baseOpacity
         this.scale := this._hasZoom ? 0.5 : 1
         this.rotation := this._hasRotate ? this.rotationDegree : 0
         this.animState := "in"
-        this.animStartTime := A_TickCount
+        this.animStartTime := A_TickCount + this._stagger
         this._initialized := true
+        this.__playSound()
     }
-    Tick() {
+    __playSound() {
+        ; PR1: system sound by alias, e.g. "SystemAsterisk", "SystemExclamation"
+        if (this.sound = "")
+            return
+        DllCall("winmm\PlaySoundW", "str", this.sound, "ptr", 0, "uint", 0x10001)
+    }
+Tick() {
         now := A_TickCount
-
         ; ── 1) Repo animation: runs INDEPENDENT of the state ──
         ; Previously this returned here → SKIPPED progress in "visible" → freeze + jump.
         ; Now it only updates currentX/Y; the state code (in/out/visible) runs after.
@@ -921,6 +1096,11 @@ class Toast {
 
         ; ── 2) Entrance animation ──
         if (this.animState == "in") {
+            ; FX6: stagger hold — sit at start position until the delay elapses
+            if (now < this.animStartTime) {
+                this.Draw()
+                return
+            }
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
             eased := ToastEasing.getEasing(this.animEasing, progress)
@@ -941,7 +1121,7 @@ class Toast {
                 this.opacity := this._baseOpacity
                 this.scale := 1.0
                 this.rotation := 0
-                this.progressStartTime := now
+                this.progressStartTime := this.progressBarWaitPosition ? now : this.creationTime
                 this.repoActive := false
                 ; Expanded buffer (rotate/zoom) stays alive until Destroy:
                 ; avoids realloc on entrance→visible and visible→exit (stutter).
@@ -1000,11 +1180,18 @@ class Toast {
                     drew := true
                 }
             }
-            if (this.showProgress && this.duration > 0 && !this.progressPaused) {
+            if (this.HasProgress() && !this.progressPaused) {
                 elapsed := now - this.progressStartTime
-                this.progress := Min(1.0, elapsed / this.duration)
+                if (this.indeterminate) {
+                    ; PR8: pulsing bar, never completes (autoDismiss forced off)
+                    phase := Mod(elapsed, 2400) / 2400
+                    this.progress := 0.15 + 0.7 * (1 - Abs(2 * phase - 1))
+                } else
+                    this.progress := Min(1.0, elapsed / this.duration)
                 diff := Abs(this.progress - this.lastProgress)
-                if (diff > 0.005) {
+                ; 30Hz cap: full 60Hz redraw of the bar wastes CPU for a 3px line
+                if (diff > 0.005 && (this.progress >= 1.0 || now - this._lastProgressDraw >= 33)) {
+                    this._lastProgressDraw := now
                     this.lastProgress := this.progress
                     ; Solo se redibuja el overlay de la barra (no el cache completo)
                     this.__drawProgress()
@@ -1012,6 +1199,10 @@ class Toast {
                     drew := true
                 }
                 if (this.progress >= 1.0) {
+                    if (this.flashOnComplete && !this._flashUntil) {
+                        this._flashUntil := now + 400
+                        this.cacheDirty := true
+                    }
                     if (this.autoDismiss) {
                         if (!this.progressCompleteTime)
                             this.progressCompleteTime := now
@@ -1171,7 +1362,25 @@ class Toast {
             try this.onClickCallback()
         }
     }
-    Dismiss(instant := false) {
+    ; ── Live style changes (fontSize, padding, width…): re-render + reflow ──
+    ;    P5: _textRendered cache must be invalidated; AHKv2 has no property
+    ;    setters, so the user calls t.Invalidate() after mutating props.
+    Invalidate(remeasure := true) {
+        this.cacheDirty := true
+        this._textRendered := false
+        this._compositeDirty := true
+        if (remeasure && this._initialized)
+            this.height := Max(this.height, this.__autoHeight())
+        if (this.animState == "visible" && !this.repoActive
+            && (this.bufferWidth != this.width || this.bufferHeight != this.height))
+            this.ResizeBuffer(this.width, this.height)
+        this._lastAlpha := -1
+        this._lastRenderX := -999999
+        this._lastRenderY := -999999
+        Toastify._reflowNeeded := true
+        Toastify.__wake()
+    }
+    Dismiss(instant := false, reflow := true) {
         if (!instant && this.animState != "out") {
             this.StartExit()
             return
@@ -1191,7 +1400,8 @@ class Toast {
         this.Destroy()
         ; Every removal path (exit loop, watchdog, direct Dismiss) goes
         ; through here → the rest is always reordered.
-        Toastify.__reflow(true)
+        if (reflow)
+            Toastify.__reflow(true)
     }
     ResizeBuffer(newW, newH) {
         if (newW == this.bufferWidth && newH == this.bufferHeight)
@@ -1220,7 +1430,13 @@ class Toast {
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         this.__applyRenderQuality(this.G, false)
+        ; Fix #P2: clear immediately → any stray UpdateLayeredWindow (DWM
+        ; refresh, stale size) shows transparent, never black garbage.
+        Gdip_GraphicsClear(this.G, 0x00000000)
         this._compositeDirty := true
+        this._lastAlpha := -1
+        this._lastRenderX := -999999
+        this._lastRenderY := -999999
     }
     Destroy() {
         if (!this.hwnd)
@@ -1278,11 +1494,17 @@ class Toast {
         hwnd := this.hwnd
         this.hwnd := 0
         this.gui := 0
+        ; onClose fires exactly once, on every teardown path
+        ; (auto-dismiss, user close, button, KillAll, Shutdown).
+        if (this.onCloseCallback) {
+            cb := this.onCloseCallback
+            this.onCloseCallback := 0
+            try cb()
+        }
         ; Break reference cycles (clickRegions closures capture this)
         this.clickRegions := []
         this._buttonClickRegions := []
         this.onClickCallback := 0
-        this.onCloseCallback := 0
         this.actions := []
         Toastify.__destroyCount++
         if (DllCall("IsWindow", "ptr", hwnd))

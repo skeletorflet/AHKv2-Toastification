@@ -19,6 +19,7 @@ class ToastConfig {
     animEntrance := "auto"
     repoDuration := 300
     renderQuality := "High"
+    progressHeight := 3
 
     rotationDegree := 10
 
