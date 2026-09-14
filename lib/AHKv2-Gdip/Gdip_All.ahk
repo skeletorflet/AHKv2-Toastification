@@ -2327,9 +2327,10 @@ Gdip_TextToGraphics(pGraphics, Text, Options, Font:="Arial", Width:="", Height:=
 	RegExMatch(Options, pattern_opts "R(\d)", &Rendering:="")
 	RegExMatch(Options, pattern_opts "S(\d+)(p*)", &Size:="")
 
-	if Colour && IsInteger(Colour[2]) && !Gdip_DeleteBrush(Gdip_CloneBrush(Colour[2])) {
-		PassBrush := 1, pBrush := Colour[2]
-	}
+	; NOTE (Toastify): PassBrush branch removed — callers always pass ARGB hex
+	; (Format "{:x}"), never a live brush handle. The old probe
+	; (IsInteger(Colour[2]) + CloneBrush/DeleteBrush) was dead code costing
+	; 2 DllCalls per text draw and risked passing a string as UPtr.
 
 	if !(IWidth && IHeight) && ((xpos && xpos[2]) || (ypos && ypos[2]) || (Width && Width[2]) || (Height && Height[2]) || (Size && Size[2])) {
 		return -1
@@ -2647,11 +2648,9 @@ Gdip_Shutdown(pToken)
 	DllCall("gdiplus\GdiplusShutdown", "UPtr", pToken)
 	hModule := DllCall("GetModuleHandle", "str", "gdiplus", "UPtr")
 	if (!hModule) {
-		throw Error("GDI+ library was unloaded before shutdown")
+		return 0
 	}
-	if (!DllCall("FreeLibrary", "UPtr", hModule)) {
-		throw Error("Could not free GDI+ library")
-	}
+	DllCall("FreeLibrary", "UPtr", hModule)
 
 	return 0
 }

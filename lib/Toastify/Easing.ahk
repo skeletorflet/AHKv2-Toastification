@@ -110,8 +110,19 @@ class ToastEasing {
         return (c / 2) + (1 - c / 2) * (1 - ((-2 * t + 2) ** 3))
     }
     static getEasing(name, t) {
-        if (!ToastEasing.funcs) {
-            ToastEasing.funcs := Map(
+        ; NOTE: class-method Funcs take `this` as hidden first arg.
+        return ToastEasing.resolve(name).Call(ToastEasing, t)
+    }
+    ; Resolve once, call per-frame: avoids Map lookup + dynamic dispatch at 60Hz.
+    static resolve(name) {
+        if (!ToastEasing.funcs)
+            ToastEasing._init()
+        if (ToastEasing.funcs.Has(name))
+            return ToastEasing.funcs[name]
+        return ToastEasing.easeOutCubic
+    }
+    static _init() {
+        ToastEasing.funcs := Map(
                 "linear", ToastEasing.linear,
                 "easeInQuad", ToastEasing.easeInQuad,
                 "easeOutQuad", ToastEasing.easeOutQuad,
@@ -156,8 +167,5 @@ class ToastEasing {
                 "fastLinearToSlowEaseIn", ToastEasing.fastLinearToSlowEaseIn,
                 "easeInOutCubicEmphasized", ToastEasing.easeInOutCubicEmphasized
             )
-        }
-        fn := ToastEasing.funcs.Has(name) ? ToastEasing.funcs[name] : 0
-        return fn ? fn.Call(ToastEasing, t) : ToastEasing.%ToastEasing.defaultEasing%(t)
     }
 }

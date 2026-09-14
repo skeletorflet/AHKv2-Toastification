@@ -1,2 +1,8 @@
 testing/
 AGENTS.md
+graphify-out/
+.graphify/
+null
+_err.txt
+*perf_result.txt
+*.tmp

@@ -170,7 +170,7 @@ class Toastify {
     }
     static SetConfig(cfg) {
         static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-            "width", "minHeight", "borderRadius", "borderWidth", "iconSize", "iconScale", "designScale", "paddingX", "paddingY", "repoDuration",
+            "width", "minHeight", "borderRadius", "borderWidth", "iconSize", "iconScale", "designScale", "paddingX", "paddingY", "repoDuration", "repoEasing", "repoAnimStyle",
             "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality",
             "rotationDegree"]
 
@@ -195,16 +195,20 @@ static Start(theme := "dark", position := "top-right") {
             Toastify.pToken := pt
             ToastTheme.InitThemes()
             OnExit((*) => Toastify.Shutdown())
-            OnMessage(0x201, (wParam, lParam, msg, hwnd) =>
-                Toastify.__Click(wParam, lParam, msg, hwnd))
+            Toastify.__hClick := (wParam, lParam, msg, hwnd) =>
+                Toastify.__Click(wParam, lParam, msg, hwnd)
             ; Native hover: WM_MOUSEMOVE + TrackMouseEvent/WM_MOUSELEAVE.
             ; Windows resolves z-order: only the topmost toast receives messages.
-            OnMessage(0x200, (wParam, lParam, msg, hwnd) =>
-                Toastify.__onMouseMove(lParam, hwnd))
-            OnMessage(0x2A3, (wParam, lParam, msg, hwnd) =>
-                Toastify.__onMouseLeave(hwnd))
-            OnMessage(0x02E0, (wParam, lParam, msg, hwnd) =>
-                Toastify.__onDpiChanged(hwnd))
+            Toastify.__hMove := (wParam, lParam, msg, hwnd) =>
+                Toastify.__onMouseMove(lParam, hwnd)
+            Toastify.__hLeave := (wParam, lParam, msg, hwnd) =>
+                Toastify.__onMouseLeave(hwnd)
+            Toastify.__hDpi := (wParam, lParam, msg, hwnd) =>
+                Toastify.__onDpiChanged(hwnd)
+            OnMessage(0x201, Toastify.__hClick)
+            OnMessage(0x200, Toastify.__hMove)
+            OnMessage(0x2A3, Toastify.__hLeave)
+            OnMessage(0x02E0, Toastify.__hDpi)
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
             Toastify.__lastTickTime := Toastify.__now()
             Toastify.__frameCounter := 0
@@ -213,16 +217,32 @@ static Start(theme := "dark", position := "top-right") {
             DllCall("SystemParametersInfoW", "uint", 0x1042, "uint", 0, "ptr*", &ani, "uint", 0)
             Toastify.reducedMotion := (ani = 0)
             ; PR6: Windows high-contrast mode → default theme forced to "minimal"
-            hc := Buffer(20, 0)
-            NumPut("uint", 20, hc, 0)
-            DllCall("SystemParametersInfoW", "uint", 0x0042, "uint", 20, "ptr", hc, "uint", 0)
-            Toastify.highContrast := (NumGet(hc, 4, "uint") & 0x1) != 0
+            ; HIGHCONTRASTW = UINT cbSize(4)+DWORD flags(4)+LPWSTR(8) = 16 en x64
+            hc := Buffer(16, 0)
+            NumPut("uint", 16, hc, 0)
+            if (DllCall("SystemParametersInfoW", "uint", 0x0042, "uint", 16, "ptr", hc, "uint", 0))
+                Toastify.highContrast := (NumGet(hc, 4, "uint") & 0x1) != 0
+            else
+                Toastify.highContrast := false
             ; PR7: optional global Esc to dismiss the newest toast (opt-in)
-            if (Toastify.escEnabled)
-                try Hotkey("Esc", (*) => Toastify.__escDismiss())
+            Toastify.__syncEscHotkey()
         }
         Toastify.theme := theme
         Toastify.position := position
+        Toastify.__syncEscHotkey()
+    }
+    static SetEscEnabled(enabled) {
+        Toastify.escEnabled := !!enabled
+        Toastify.__syncEscHotkey()
+    }
+    static __syncEscHotkey() {
+        if (!Toastify.pToken)
+            return
+        if (Toastify.escEnabled) {
+            try Hotkey("Esc", (*) => Toastify.__escDismiss(), "On")
+        } else {
+            try Hotkey("Esc", "Off")
+        }
     }
 
     static __escDismiss(*) {
@@ -256,6 +276,8 @@ static Start(theme := "dark", position := "top-right") {
             Toastify.__setPerfMode(false)
             if (Toastify.__globalTimer)
                 SetTimer(Toastify.__globalTimer, 0)
+            if (Toastify.registry.Count > 0)
+                Toastify.__ensureSweep()
         }
     }
     static __setPerfMode(fast) {
@@ -273,6 +295,15 @@ static Start(theme := "dark", position := "top-right") {
 
     static Shutdown(*) {
         Toastify.__setActive(false)
+        try SetTimer(Toastify.__sweepTimer, 0)
+        if (Toastify.__hClick) {
+            try OnMessage(0x201, Toastify.__hClick, 0)
+            try OnMessage(0x200, Toastify.__hMove, 0)
+            try OnMessage(0x2A3, Toastify.__hLeave, 0)
+            try OnMessage(0x02E0, Toastify.__hDpi, 0)
+            Toastify.__hClick := Toastify.__hMove := Toastify.__hLeave := Toastify.__hDpi := 0
+        }
+        try Hotkey("Esc", "Off")
         for t in Toastify.toasts
             t.Destroy()
         for t in Toastify.exitingToasts
@@ -285,9 +316,35 @@ static Start(theme := "dark", position := "top-right") {
         if Toastify.pToken {
             Toast.FreeFontCache()
             ToastTheme.Shutdown()
-            Gdip_Shutdown(Toastify.pToken)
+            try Gdip_Shutdown(Toastify.pToken)
             Toastify.pToken := 0
         }
+    }
+    ; Low-frequency sweep while the 60Hz loop is suspended (permanent toasts):
+    ; reaps externally-destroyed hwnds so registry never retains dead windows.
+    static __sweepTimer := 0
+    static __ensureSweep() {
+        if (!Toastify.__sweepTimer)
+            Toastify.__sweepTimer := ObjBindMethod(Toastify, "__sweepDead")
+        SetTimer(Toastify.__sweepTimer, 1000)
+    }
+    static __sweepDead() {
+        if (Toastify.__active || Toastify.registry.Count = 0) {
+            if (Toastify.registry.Count = 0)
+                try SetTimer(Toastify.__sweepTimer, 0)
+            return
+        }
+        for hwnd, data in Toastify.registry.Clone() {
+            if (!DllCall("IsWindow", "ptr", hwnd)) {
+                t := Toastify.__toastByHwnd(hwnd)
+                if (t)
+                    try t.Dismiss(true)
+                if (Toastify.registry.Has(hwnd))
+                    Toastify.registry.Delete(hwnd)
+            }
+        }
+        if (Toastify.registry.Count = 0)
+            try SetTimer(Toastify.__sweepTimer, 0)
     }
 
     static Show(title := "", body := "", actions := [], opts := 0) {
@@ -336,12 +393,11 @@ static Start(theme := "dark", position := "top-right") {
     }
 
     static ShowView(viewItems, opts := 0) {
-        t := Toast("", "", [], opts)
+        if !opts
+            opts := {}
+        t := Toastify.__createToast("", "", [], opts)
         t.view := viewItems
-        Toastify.toasts.Push(t)
-        Toastify.__setActive(true)
-        Toastify.__reflow(true)
-        t.AnimateIn()
+        t.Invalidate(false)
         t.Draw()
         return t
     }
@@ -367,15 +423,15 @@ static Start(theme := "dark", position := "top-right") {
         if !opts.HasProp("position")
             opts.position := Toastify.position
 
-        ; PR2: same tag replaces the existing toast (dedupe spam)
+        ; PR2: same tag replaces the existing toast (dedupe spam, case-sensitive)
         if (opts.HasProp("tag") && opts.tag != "") {
             for t in Toastify.toasts.Clone()
-                if (t.tag = opts.tag) {
+                if (t.tag == opts.tag) {
                     t.Dismiss(true, false)
                     break
                 }
             for t in Toastify.exitingToasts.Clone()
-                if (t.tag = opts.tag) {
+                if (t.tag == opts.tag) {
                     t.Dismiss(true, false)
                     break
                 }
@@ -395,8 +451,9 @@ static Start(theme := "dark", position := "top-right") {
             wa := ToastDPI.WorkArea(rx, ry)
             dpi := ToastDPI.ForPoint(rx, ry)
         } else {
-            wa := ToastDPI.WorkArea(0, 0)
-            dpi := ToastDPI.Primary()
+            cp := ToastDPI.CursorPoint()
+            wa := ToastDPI.WorkArea(cp.x, cp.y)
+            dpi := ToastDPI.ForPoint(cp.x, cp.y)
         }
         marginY := ToastDPI.Px(opts.HasProp("marginY") ? opts.marginY : Toastify.marginY, dpi)
         spacing := ToastDPI.Px(opts.HasProp("spacing") ? opts.spacing : Toastify.spacing, dpi)
@@ -450,18 +507,18 @@ static Start(theme := "dark", position := "top-right") {
         return t0
     }
 
-    ; PR4: group control by tag
+    ; PR4: group control by tag (case-sensitive)
     static DismissGroup(tag) {
         for t in Toastify.toasts.Clone()
-            if (t.tag = tag)
+            if (t.tag == tag)
                 t.StartExit()
     }
     static KillGroup(tag) {
         for t in Toastify.toasts.Clone()
-            if (t.tag = tag)
+            if (t.tag == tag)
                 t.Dismiss(true)
         for t in Toastify.exitingToasts.Clone()
-            if (t.tag = tag)
+            if (t.tag == tag)
                 t.Dismiss(true)
     }
 
@@ -481,9 +538,17 @@ static Start(theme := "dark", position := "top-right") {
 
         for pos, group in groups {
             refT := group[1]
-            ; Use target (final position) to resolve the monitor; fallback currentX/Y
-            refX := refT.targetX > 0 ? refT.targetX : ((refT.currentX > 0 && refT.currentX < A_ScreenWidth) ? refT.currentX : 0)
-            refY := refT.targetY > 0 ? refT.targetY : ((refT.currentY > 0 && refT.currentY < A_ScreenHeight) ? refT.currentY : 0)
+            ; Use target (final position) to resolve the monitor; fallback cursor
+            ; (virtual coords safe: no A_ScreenWidth assumption, multi-monitor OK).
+            refX := refT.targetX, refY := refT.targetY
+            if (!(refX > 0)) {
+                if (refT.currentX != 0 || refT.currentY != 0) {
+                    refX := refT.currentX, refY := refT.currentY
+                } else {
+                    cp := ToastDPI.CursorPoint()
+                    refX := cp.x, refY := cp.y
+                }
+            }
             wa := ToastDPI.WorkArea(refX, refY)
             dpi := ToastDPI.ForPoint(refX, refY)
 
@@ -560,6 +625,16 @@ static Start(theme := "dark", position := "top-right") {
                 t := group[target.gi]
                 x := target.x
                 y := target.y
+                ; Per-toast DPI: the target may sit on another monitor than the
+                ; leader (mixed-DPI setups). Fix up size once, not every frame.
+                dpiAt := ToastDPI.ForPoint(x, y)
+                if (dpiAt > 0 && t.dpi > 0 && dpiAt != t.dpi
+                    && t.bufferWidth == t.width && t.bufferHeight == t.height) {
+                    t._dpi := dpiAt
+                    t._applyDpi()
+                    t.ResizeBuffer(t.width, t.height)
+                    t.Invalidate(false)
+                }
                 t.targetX := x
                 t.targetY := y
 
@@ -572,8 +647,9 @@ static Start(theme := "dark", position := "top-right") {
                         t.animStartY := y
                     else
                         t.animStartX := x
-                } else if (t.animState == "visible" || t.animState == "in") {
-                    if (animate) {
+            } else if (t.animState == "visible" || t.animState == "in") {
+                ; PR5: reduced-motion → reposition snaps instantly, no slide/pulse.
+                if (animate && !Toastify.reducedMotion) {
                         if (Abs(t.repoTargetX - x) > 0.5 || Abs(t.repoTargetY - y) > 0.5) {
                             t.repoStartX := t.currentX
                             t.repoStartY := t.currentY
@@ -605,13 +681,19 @@ static Start(theme := "dark", position := "top-right") {
         if (Toastify.exitingToasts.Length > 0 || Toastify._reflowNeeded)
             return 8
         progressOnly := false
+        hasIndeterminate := false
         for t in Toastify.toasts {
             if (t.animState == "in" || t.repoActive || t._hoverOpacityActive)
                 return 8
-            if (t.HasProgress() && !t.progressPaused)
+            if (t.HasProgress() && !t.progressPaused) {
                 progressOnly := true
+                if (t.indeterminate)
+                    hasIndeterminate := true
+            }
         }
-        ; ponytail: progress bar only needs ~30Hz (E2 throttle) → 33ms, not 60Hz
+        if (hasIndeterminate)
+            return 8
+        ; ponytail: determinate progress bar only needs ~30Hz → 33ms
         if (progressOnly)
             return 33
         ; ponytail: semi-idle 100ms; volver a 60Hz solo si hay animación/progreso vivo
@@ -628,18 +710,30 @@ static Start(theme := "dark", position := "top-right") {
             mx := Max(mx, v)
         }
         avg := total / s.Length
-        ; p95: sort a copy only here — FPS() is telemetry, called on demand
+        ; p95 sin ordenar: quickselect parcial O(n). FPS() es telemetría on-demand.
+        k := Ceil(s.Length * 0.95)
         c := s.Clone()
-        n := c.Length
-        loop n - 1
-            loop n - A_Index {
-                k := A_Index
-                if (c[k] > c[k + 1]) {
-                    tmp := c[k], c[k] := c[k + 1], c[k + 1] := tmp
+        lo := 1, hi := c.Length
+        while (lo < hi) {
+            pivot := c[(lo + hi) // 2]
+            i := lo, j := hi
+            while (i <= j) {
+                while (c[i] < pivot)
+                    i++
+                while (c[j] > pivot)
+                    j--
+                if (i <= j) {
+                    tmp := c[i], c[i] := c[j], c[j] := tmp
+                    i++, j--
                 }
             }
+            if (j < k)
+                lo := i
+            if (k < i)
+                hi := j
+        }
         return { fps: Round(1000 / avg, 1), avg: Round(avg, 2)
-            , p95: Round(c[Ceil(c.Length * 0.95)], 2), max: Round(mx, 2), samples: s.Length }
+            , p95: Round(c[k], 2), max: Round(mx, 2), samples: s.Length }
     }
     static __globalTick(*) {
         now := Toastify.__now()
@@ -705,7 +799,10 @@ static Start(theme := "dark", position := "top-right") {
                 if (t && t.hovered && t.progressPaused && Toastify.hoverPauseEnabled)
                     continue
                 if (t && t.autoDismiss && t.duration > 0) {
-                    expectedLifetime := t.animDuration + t.duration + 500
+                    ; Margen sobre la salida natural (entrada + stagger + fill +
+                    ; grace + exit): el watchdog solo mata toasts colgados, nunca
+                    ; se adelanta a la salida por progreso.
+                    expectedLifetime := t.animDuration + t.duration + t._stagger + Toast.progressGracePeriod + t.animDuration + 500
                     ; A_TickCount: mismo reloj que registry.startTime y que el exit loop.
                     ; QPC (__now) y A_TickCount tienen epochas distintas (wrap 49.7d) →
                     ; mezclarlos aquí mataba toasts ~5s antes de su lifetime real.
@@ -751,7 +848,8 @@ static Start(theme := "dark", position := "top-right") {
                         break
                     }
             if (anyHovered) {
-                pt := Buffer(8, 0)
+                static ptHover := Buffer(8, 0)
+                pt := ptHover
                 DllCall("GetCursorPos", "ptr", pt)
                 mx := NumGet(pt, 0, "int")
                 my := NumGet(pt, 4, "int")
@@ -790,7 +888,9 @@ for t in Toastify.toasts
                     style := DllCall("GetWindowLongPtr", "ptr", hwnd, "int", -16, "ptr")
                     if (style & 0x20000000) {          ; WS_MINIMIZE
                         style &= ~0x20000000
-                        DllCall("SetWindowLongPtr", "ptr", hwnd, "int", -16, "ptr", style)
+                        newStyle := DllCall("SetWindowLongPtr", "ptr", hwnd, "int", -16, "ptr", style, "ptr")
+                        if (!newStyle && A_LastError)
+                            DllCall("ShowWindow", "ptr", hwnd, "int", 9) ; SW_RESTORE fallback
                         ; SWP_NOSIZE(1)|SWP_NOMOVE(2)|SWP_NOACTIVATE(16)|SWP_SHOWWINDOW(64)|SWP_FRAMECHANGED(32) = 0x0073
                         DllCall("SetWindowPos", "ptr", hwnd, "ptr", -1
                             , "int", 0, "int", 0, "int", 0, "int", 0
@@ -830,12 +930,12 @@ for t in Toastify.toasts
             Toastify.toasts[1].StartExit()
 
         toastsToExit := []
-        for t in Toastify.toasts {
+        for t in Toastify.toasts.Clone() {
             if (t.animState == "out") {
                 toastsToExit.Push(t)
                 continue
             }
-            t.Tick()
+            try t.Tick()
         }
         for t in toastsToExit
             t.StartExit()
@@ -874,10 +974,13 @@ for t in Toastify.toasts
         }
     }
     static __trackLeave(hwnd) {
-        tr := Buffer(16, 0)
-        NumPut("uint", 16, tr, 0)      ; cbSize
+        ; TRACKMOUSEEVENT: DWORD(4)+DWORD(4)+HWND(8)+DWORD(4) = 20 bytes,
+        ; padded to sizeof = 24 on x64 (8-byte alignment from HWND).
+        tr := Buffer(24, 0)
+        NumPut("uint", 24, tr, 0)      ; cbSize = sizeof
         NumPut("uint", 2, tr, 4)        ; TME_LEAVE
         NumPut("ptr", hwnd, tr, 8)
+        NumPut("uint", 0, tr, 16)       ; dwHoverTime
         DllCall("TrackMouseEvent", "ptr", tr)
     }
     static __onMouseMove(lParam, hwnd) {
@@ -909,24 +1012,27 @@ for t in Toastify.toasts
             return
         t._dpi := ToastDPI.ForWindow(hwnd)
         t._applyDpi()
+        if (t.bufferWidth != t.width || t.bufferHeight != t.height)
+            t.ResizeBuffer(t.width, t.height)
         t.Invalidate(false)
+        t.Draw()
         Toastify.__reflow(true)
     }
 
     static __Click(wParam, lParam, msg, hwnd) {
         Toastify.__wake()
-        for t in Toastify.toasts
+        for t in Toastify.toasts.Clone()
             if (t.hwnd == hwnd) {
                 x := lParam & 0xFFFF
                 y := (lParam >> 16) & 0xFFFF
-                t.OnClick(x, y)
+                try t.OnClick(x, y)
                 return
             }
-        for t in Toastify.exitingToasts
+        for t in Toastify.exitingToasts.Clone()
             if (t.hwnd == hwnd) {
                 x := lParam & 0xFFFF
                 y := (lParam >> 16) & 0xFFFF
-                t.OnClick(x, y)
+                try t.OnClick(x, y)
                 return
             }
     }

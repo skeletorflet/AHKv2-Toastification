@@ -1,6 +1,5 @@
-#include lib/Toastify.ahk
 #Requires AutoHotkey v2.0
-#Include lib\Toastify.ahk
+#Include ..\lib\Toastify.ahk
 
 Toastify.Start("dark", "bottom-right")
 Toastify.SetConfig({ minHeight: 94, repoDuration: 161 })

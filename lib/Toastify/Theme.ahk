@@ -300,9 +300,50 @@ class ToastTheme {
         })
     }
 
+    ; Accepts 0xAARRGGBB ints or CSS strings (#RGB/#RRGGBB/#AARRGGBB).
+    static ParseARGB(v, fallback := 0xFF000000) {
+        if (IsInteger(v))
+            return Integer(v)
+        if (IsFloat(v))
+            return Integer(Round(v))
+        if (Type(v) = "String") {
+            s := Trim(v)
+            if (SubStr(s, 1, 1) = "#")
+                s := SubStr(s, 2)
+            if (RegExMatch(s, "^[0-9a-fA-F]+$") && (StrLen(s) = 3 || StrLen(s) = 6 || StrLen(s) = 8)) {
+                if (StrLen(s) = 3) {
+                    r := SubStr(s, 1, 1), g := SubStr(s, 2, 1), b := SubStr(s, 3, 1)
+                    s := r r g g b b
+                }
+                if (StrLen(s) = 6)
+                    s := "FF" s
+                return Integer("0x" s)
+            }
+        }
+        return fallback
+    }
     static Register(name, palette) {
         if (ToastTheme.themes.Has(name))
             ToastTheme.DeletePalette(ToastTheme.themes[name])
+        ; Strict validation: missing/invalid keys used to crash deep in GDI+
+        ; (palette.accent & ...) with garbage colors. Fail fast with OutputDebug.
+        ok := true
+        for key in ["bg1", "bg2", "fg", "accent", "shadow", "progress"] {
+            if (!palette.HasOwnProp(key)) {
+                if (key = "progress" && palette.HasOwnProp("accent"))
+                    continue
+                OutputDebug("Toastify: Register('" name "') missing required key '" key "'")
+                ok := false
+            }
+        }
+        if (!ok)
+            return ""
+        for key in ["bg1", "bg2", "fg", "accent", "shadow", "progress", "progressBg", "border"] {
+            if (palette.HasOwnProp(key))
+                palette.%key% := ToastTheme.ParseARGB(palette.%key%)
+        }
+        if (!palette.HasOwnProp("progress"))
+            palette.progress := palette.accent
         if !palette.HasOwnProp("border") {
             accentRGB := palette.accent & 0xFFFFFF
             palette.border := 0xCC000000 | accentRGB
@@ -369,6 +410,7 @@ class ToastTheme {
             theme := ToastTheme.ResolveAuto()
         if (ToastTheme.themes.Has(theme))
             return ToastTheme.themes[theme]
+        OutputDebug("Toastify: unknown theme '" theme "' → fallback 'dark'")
         return ToastTheme.themes["dark"]
     }
 
@@ -398,5 +440,6 @@ class ToastTheme {
     static Shutdown() {
         for name, pal in ToastTheme.themes
             ToastTheme.DeletePalette(pal)
+        ToastTheme.themes.Clear()
     }
 }

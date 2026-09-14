@@ -17,13 +17,14 @@ class Toast {
     showProgress := true
     indeterminate := false
     progressHeight := 0
-progressStriped := false
-flashOnComplete := false
+    progressStriped := false
+    stripeSpeed := 40
+    stripeWidth := 3
+    stripeSpacing := 8
     marginX := -1
     marginY := -1
     spacing := -1
     _stagger := 0
-    _flashUntil := 0
     ; true: la barra avanza al llegar a posición (tras entrada).
     ; false: avanza desde la creación; duration se clampa a entrada+salida (evita flicker).
     progressBarWaitPosition := true
@@ -46,10 +47,12 @@ flashOnComplete := false
     pBitmapCache := 0
     GCache := 0
     cacheDirty := true
-    _compositeDirty := true
+    _progressBgSnapshot := 0
+
     ; ── Progress overlay: small bitmap, only it gets redrawn ──
     _progressBitmap := 0
     _GProgress := 0
+    _gProgressSmoothSet := false
     _progressW := 0
     _progressH := 0
     ; ── Close button: its own small bitmap; the hover halo does NOT redraw
@@ -75,7 +78,13 @@ flashOnComplete := false
     repoTargetY := 0
     repoStartTime := 0
     repoDuration := 250
+    repoEasing := ""
+    repoAnimStyle := 0
     repoActive := false
+    _repoHasSlide := false
+    _repoHasFade := false
+    _repoHasZoom := false
+    _repoHasRotate := false
     animState := "idle"
     animStartTime := 0
     animDuration := 300
@@ -102,6 +111,12 @@ flashOnComplete := false
     lastProgress := 0.0
     _lastDrawnProgress := -1
     _lastProgressDraw := 0
+    _easingFn := 0
+    _easingName := ""
+    _repoEasingFn := 0
+    _repoEasingName := ""
+    _stripePen := 0
+    _stripePenW := 0
     creationTime := 0
     clickRegions := []
     hovered := false
@@ -111,7 +126,7 @@ flashOnComplete := false
     userInitiatedExit := false
     autoDismiss := true
     progressCompleteTime := 0
-    static progressGracePeriod := 300
+    static progressGracePeriod := 500
     _baseOpacity := 1.0
     opacityOnHover := false
     _hoverOpacityFrom := 0.0
@@ -121,8 +136,6 @@ flashOnComplete := false
     _hoverOpacityDur := 180
     _windowShown := false
     _initialized := false
-    _winX := 0
-    _winY := 0
 
     __New(title, body, actions, opts) {
         dpi := 1.0
@@ -182,8 +195,12 @@ flashOnComplete := false
                     this.spacing := opts.spacing
                 if opts.HasProp("progressStriped")
                     this.progressStriped := !!opts.progressStriped
-                if opts.HasProp("flashOnComplete")
-                    this.flashOnComplete := !!opts.flashOnComplete
+                if opts.HasProp("stripeSpeed")
+                    this.stripeSpeed := opts.stripeSpeed
+                if opts.HasProp("stripeWidth")
+                    this.stripeWidth := opts.stripeWidth
+                if opts.HasProp("stripeSpacing")
+                    this.stripeSpacing := opts.stripeSpacing
             }
             for key in Toast._styleKeys
                 try
@@ -212,6 +229,28 @@ flashOnComplete := false
                 else
                     this.animEntrance := Toastify.config.animEntrance
             }
+            try {
+                if opts.HasProp("repoEasing")
+                    this.repoEasing := opts.repoEasing
+                else
+                    this.repoEasing := Toastify.config.repoEasing
+            }
+            try {
+                if opts.HasProp("repoDuration")
+                    this.repoDuration := opts.repoDuration
+                else
+                    this.repoDuration := Toastify.config.repoDuration
+            }
+            try {
+                if opts.HasProp("repoAnimStyle")
+                    this.repoAnimStyle := opts.repoAnimStyle
+                else
+                    this.repoAnimStyle := Toastify.config.repoAnimStyle
+            }
+            if Type(this.repoAnimStyle) == "String"
+                this.repoAnimStyle := [this.repoAnimStyle]
+            else if !HasProp(this.repoAnimStyle, "Length")
+                this.repoAnimStyle := ["slide"]
             try {
                 if opts.HasProp("autoDismiss")
                     this.autoDismiss := !!opts.autoDismiss
@@ -279,18 +318,6 @@ flashOnComplete := false
             Gdip_DisposeImage(this._shadowBitmap)
             this._shadowBitmap := 0
         }
-        if (this._closeHoverBrush) {
-            Gdip_DeleteBrush(this._closeHoverBrush)
-            this._closeHoverBrush := 0
-        }
-        if (this._closePenNormal) {
-            Gdip_DeletePen(this._closePenNormal)
-            this._closePenNormal := 0
-        }
-        if (this._closePenHover) {
-            Gdip_DeletePen(this._closePenHover)
-            this._closePenHover := 0
-        }
         if (this._customBorderPen) {
             Gdip_DeletePen(this._customBorderPen)
             this._customBorderPen := 0
@@ -337,7 +364,6 @@ flashOnComplete := false
         layers := pal.HasOwnProp("glow") && pal.glow ? 7 : 5
         spread := pal.HasOwnProp("glow") && pal.glow ? 2.2 : 1.4
         d := this.dpiFactor
-        this._shadowPad := 0
         this._shadowBitmap := Gdip_CreateBitmap(this.width, this.height)
         G := Gdip_GraphicsFromImage(this._shadowBitmap)
         Gdip_SetSmoothingMode(G, 2)
@@ -352,14 +378,6 @@ flashOnComplete := false
             Gdip_DeleteBrush(br)
         }
         Gdip_DeleteGraphics(G)
-
-        ; 2) Circular halo of the close button on hover (constant)
-        this._closeHoverBrush := Gdip_BrushCreateSolid(0x33FFFFFF)
-
-        ; 3) Dos pens del aspa del close: normal + hover (constantes)
-        ;    OJO: usar dpiFactor (1.0), no dpi (96). dpiFactor es el factor de escala real.
-        this._closePenNormal := Gdip_CreatePen(0xAAFFFFFF, 2 * this.dpiFactor)
-        this._closePenHover := Gdip_CreatePen(0xFFFFFFFF, 2 * this.dpiFactor)
 
         ; 4) Custom border pen. Width scaled, always created: centered pen
         ;    straddles the path, so path must be inset by half the pen width
@@ -411,10 +429,10 @@ flashOnComplete := false
         tmpG := tmpBmp ? Gdip_GraphicsFromImage(tmpBmp) : 0
         titleH := (this.title = "") ? 0 : this.__measureTextH(tmpG, this.title, textW, this.fontSizeTitle, this.fontWeightTitle)
         bodyH := (this.body = "") ? 0 : this.__measureTextH(tmpG, this.body, textW, this.fontSizeBody, this.fontWeightBody)
-        if (tmpG) {
+        if (tmpG)
             Gdip_DeleteGraphics(tmpG)
+        if (tmpBmp)
             Gdip_DisposeImage(tmpBmp)
-        }
         titleBoxH := (this.title = "") ? 0 : Max(this.fontSizeTitle * 1.5, titleH)
         this._titleH := titleH
         bodyY := this.paddingY + titleBoxH + (this.title = "" ? 0 : 4 * d)
@@ -518,6 +536,7 @@ flashOnComplete := false
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         Gdip_SetSmoothingMode(this.G, 4)
+        Gdip_SetInterpolationMode(this.G, 6)
 
         this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
         this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
@@ -551,6 +570,10 @@ flashOnComplete := false
         d := this.dpiFactor
         this.clickRegions := []
         Gdip_GraphicsClear(this.GCache)
+        if (this._progressBgSnapshot) {
+            Gdip_DisposeImage(this._progressBgSnapshot)
+            this._progressBgSnapshot := 0
+        }
         ; FX1: sombra suave horneada (blit 1:1, sin scale)
         if (this._shadowBitmap)
             Gdip_DrawImage(this.GCache, this._shadowBitmap, 0, 0, this.width, this.height
@@ -570,13 +593,6 @@ flashOnComplete := false
         if (bw > 0)
             Gdip_DrawPath(this.GCache, this._customBorderPen, p)
         Gdip_DeletePath(p)
-
-        ; FX5: flash — accent border pulse for 400ms after progress completes
-        if (this.flashOnComplete && this._flashUntil > A_TickCount) {
-            fp := Gdip_CreatePen(pal.accent, bw + 3 * d)
-            Gdip_DrawRoundedRectangle(this.GCache, fp, bw / 2, bw / 2, this.width - bw, this.height - bw, this.borderRadius)
-            Gdip_DeletePen(fp)
-        }
 
         iconX := this.paddingX
         iconSize := this.iconSize * this.iconScale
@@ -617,9 +633,12 @@ flashOnComplete := false
             for r in this._buttonClickRegions
                 this.clickRegions.Push(r)
 
-        if (this.HasProgress())
+        if (this.HasProgress()) {
+            this.__ensureProgressBitmap()
+            this.__captureProgressBgSnapshot()
             this.__drawProgress()
-        this._compositeDirty := true
+        }
+        this._dirtyRect := "full"
     }
 
     __ensureProgressBitmap() {
@@ -636,6 +655,29 @@ flashOnComplete := false
         this.__applyRenderQuality(this._GProgress, true)
     }
 
+    __captureProgressBgSnapshot() {
+        if (!this._progressBitmap)
+            return
+        if (!this._progressBgSnapshot)
+            this._progressBgSnapshot := Gdip_CreateBitmap(this._progressW, this._progressH)
+        pal := ToastTheme.palette(this.theme)
+        d := this.dpiFactor
+        px := 14 * d
+        py := this.height - this._progressH - 7 * d
+
+        ; Bake TRACK once onto GCache directly at real position (horneado en snapshot).
+        Gdip_FillRoundedRectangle(this.GCache, pal.progressBgBrush, px, py, this._progressW, this._progressH, 2 * d)
+
+        GSnap := Gdip_GraphicsFromImage(this._progressBgSnapshot)
+        try {
+            DllCall("gdiplus\GdipSetCompositingMode", "ptr", GSnap, "int", 1)
+            Gdip_DrawImage(GSnap, this.pBitmapCache, 0, 0, this._progressW, this._progressH
+                , px, py, this._progressW, this._progressH)
+        } finally {
+            try Gdip_DeleteGraphics(GSnap)
+        }
+    }
+
     __drawProgress() {
         if (!this.HasProgress())
             return
@@ -645,24 +687,52 @@ flashOnComplete := false
         pal := ToastTheme.palette(this.theme)
         d := this.dpiFactor
         this.__ensureProgressBitmap()
+
+        if (!this._gProgressSmoothSet) {
+            Gdip_SetSmoothingMode(this._GProgress, 1)
+            this._gProgressSmoothSet := true
+        }
+
         Gdip_GraphicsClear(this._GProgress, 0x00000000)
-        Gdip_FillRoundedRectangle(this._GProgress, pal.progressBgBrush, 0, 0, this._progressW, this._progressH, 2 * d)
-        if (this.progress > 0) {
+        if (this.indeterminate) {
+            ; sliding window 35% ancho — ojo traquea objeto → más fluido que fill 0→W
+            blockW := this._progressW * 0.35
+            x := (this._progressW - blockW) * this.progress
+            r := 2 * d
+            Gdip_FillRoundedRectangle(this._GProgress, pal.progressFillBrush, x, 0, blockW, this._progressH, r)
+        } else if (this.progress > 0) {
             fillWidth := this._progressW * this.progress
-            Gdip_FillRoundedRectangle(this._GProgress, pal.progressFillBrush, 0, 0, fillWidth, this._progressH, 2 * d)
-            ; FX5: diagonal stripes over the fill (opt-in progressStriped)
-            if (this.progressStriped) {
-                stripePen := Gdip_CreatePen(0x26FFFFFF, 3 * d)
-                loop Ceil(fillWidth / (8 * d)) + 1 {
-                    sx := (A_Index - 1) * 8 * d
-                    Gdip_DrawLine(this._GProgress, stripePen, sx, 0, sx + this._progressH, this._progressH)
+            r := 2 * d
+            if (fillWidth > r)
+                Gdip_FillRectangle(this._GProgress, pal.progressFillBrush, r, 0, fillWidth - r, this._progressH)
+            Gdip_FillRoundedRectangle(this._GProgress, pal.progressFillBrush, 0, 0, Min(fillWidth, r), this._progressH, r)
+            ; FX5: diagonal stripes con movimiento marquee infinito (opt-in progressStriped)
+            if (this.progressStriped && this.stripeSpacing > 0) {
+                penW := this.stripeWidth * d
+                if (!this._stripePen || this._stripePenW != penW) {
+                    if (this._stripePen)
+                        Gdip_DeletePen(this._stripePen)
+                    this._stripePen := Gdip_CreatePen(0x26FFFFFF, penW)
+                    this._stripePenW := penW
                 }
-                Gdip_DeletePen(stripePen)
+                off := Mod((A_TickCount - this.progressStartTime) * this.stripeSpeed / 1000, this.stripeSpacing)
+                loop Ceil(fillWidth / (this.stripeSpacing * d)) + 1 {
+                    sx := (A_Index - 1) * this.stripeSpacing * d - off * d
+                    Gdip_DrawLine(this._GProgress, this._stripePen, sx, 0, sx + this._progressH, this._progressH)
+                }
             }
         }
-        Gdip_DrawImage(this.GCache, this._progressBitmap, 14 * d, this.height - this._progressH - 7 * d
-            , this._progressW, this._progressH, 0, 0, this._progressW, this._progressH)
-        this._compositeDirty := true
+        px := 14 * d
+        py := this.height - this._progressH - 7 * d
+        if (this._progressBgSnapshot) {
+            DllCall("gdiplus\GdipSetCompositingMode", "ptr", this.GCache, "int", 1)
+            Gdip_DrawImage(this.GCache, this._progressBgSnapshot, px, py, this._progressW, this._progressH
+                , 0, 0, this._progressW, this._progressH)
+            DllCall("gdiplus\GdipSetCompositingMode", "ptr", this.GCache, "int", 0)
+        }
+        Gdip_DrawImage(this.GCache, this._progressBitmap, px, py, this._progressW, this._progressH
+            , 0, 0, this._progressW, this._progressH)
+        this._dirtyRect := { x: px, y: py, w: this._progressW, h: this._progressH }
     }
 
     __renderTextAndButtons(pal, font, d, textStartX) {
@@ -711,6 +781,8 @@ flashOnComplete := false
             NumPut("float", 10000, layout, 12)
             btnFont := this.fontSizeBody
             availW := this.width - 32 * d - (this.actions.Length - 1) * 8 * d
+            if (this.actions.Length = 0 || availW <= 0)
+                return
             loop {
                 widths := []
                 total := 0
@@ -724,10 +796,12 @@ flashOnComplete := false
                 }
                 if (total <= availW || btnFont <= 8)
                     break
+                if (total <= 0)
+                    break
                 btnFont := Max(8, Floor(btnFont * availW / total))
             }
             leftover := Max(0, availW - total)
-            factor := (total > availW) ? (availW / total) : 1
+            factor := (total > availW && total > 0) ? (availW / total) : 1
             share := Floor(leftover / this.actions.Length)
             y := this.height - (this.showProgress ? 50 * d : 40 * d)
             x := 16 * d
@@ -776,8 +850,7 @@ flashOnComplete := false
     _lastRenderY := 0
     _lastAlpha := -1
     RenderToWindow() {
-        compositeDone := false    ; local: G fue recompuesto este frame
-
+        compositeDone := false    ; frame recomposed
         drawX := (this.bufferWidth - this.width) / 2
         drawY := (this.bufferHeight - this.height) / 2
         if (this.scale != 1.0 || this.rotation != 0) {
@@ -786,8 +859,6 @@ flashOnComplete := false
                 return
             }
             Gdip_GraphicsClear(this.G, 0x00000000)
-            ; Bilinear during transform: bicubic per frame slows down rotation
-            Gdip_SetInterpolationMode(this.G, 6)
             Gdip_ResetWorldTransform(this.G)
             bufCX := this.bufferWidth / 2
             bufCY := this.bufferHeight / 2
@@ -802,12 +873,19 @@ flashOnComplete := false
             Gdip_ResetClip(this.G)
             Gdip_ResetWorldTransform(this.G)
             compositeDone := true
-            this._compositeDirty := true
-        } else if (this._compositeDirty) {
-            Gdip_GraphicsClear(this.G, 0x00000000)
-            Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
+            this._dirtyRect := "full"
+        } else if (this._dirtyRect) {
+            if (this._dirtyRect = "full") {
+                Gdip_GraphicsClear(this.G, 0x00000000)
+                Gdip_DrawImage(this.G, this.pBitmapCache, drawX, drawY, this.width, this.height, 0, 0, this.width, this.height)
+            } else {
+                r := this._dirtyRect
+                DllCall("gdiplus\GdipSetCompositingMode", "ptr", this.G, "int", 1)
+                Gdip_DrawImage(this.G, this.pBitmapCache, drawX + r.x, drawY + r.y, r.w, r.h, r.x, r.y, r.w, r.h)
+                DllCall("gdiplus\GdipSetCompositingMode", "ptr", this.G, "int", 0)
+            }
             compositeDone := true
-            this._compositeDirty := false
+            this._dirtyRect := false
         }
 
         alpha := Floor(this.opacity * 255)
@@ -853,8 +931,6 @@ flashOnComplete := false
             
         }
         UpdateLayeredWindow(this.hwnd, this.hdc, wx, wy, w, h, alpha)
-        this._winX := wx
-        this._winY := wy
     }
 
     DrawIcon(x, y, size, iconType, pal) {
@@ -926,9 +1002,11 @@ flashOnComplete := false
         this._closeHoveredRendered := -1
     }
     __renderCloseBitmap(pal) {
-        if (this._closeHoveredRendered == this.closeHovered)
+        if (this._closeHoveredRendered == this.closeHovered
+            && this._closeRenderedTheme == this.theme)
             return
         this._closeHoveredRendered := this.closeHovered
+        this._closeRenderedTheme := this.theme
         Gdip_GraphicsClear(this._GClose, 0x00000000)
         accent := pal.accent & 0xFFFFFF
         if (this.closeHovered) {
@@ -987,7 +1065,7 @@ flashOnComplete := false
         pal := ToastTheme.palette(this.theme)
         this.__renderCloseBitmap(pal)
         this.__blitClose()
-        this._compositeDirty := true
+        this._dirtyRect := "full"
         this.Draw()
     }
 
@@ -1006,12 +1084,25 @@ flashOnComplete := false
                 return true
         return false
     }
+    HasRepoAnim(name) {
+        for style in this.repoAnimStyle
+            if (style == name)
+                return true
+        return false
+    }
+    __updateRepoFlags() {
+        this._repoHasSlide := this.HasRepoAnim("slide")
+        this._repoHasFade := this.HasRepoAnim("fade")
+        this._repoHasZoom := this.HasRepoAnim("zoom")
+        this._repoHasRotate := this.HasRepoAnim("rotate")
+    }
     HasProgress() => this.showProgress && (this.duration > 0 || this.indeterminate)
     AnimateIn() {
         this._hasSlide := this.HasAnim("slide")
         this._hasFade := this.HasAnim("fade")
         this._hasZoom := this.HasAnim("zoom")
         this._hasRotate := this.HasAnim("rotate")
+        this.__updateRepoFlags()
         ; PR5: reduced motion → land instantly, no animation
         if (Toastify.reducedMotion) {
             this._hasSlide := this._hasFade := this._hasZoom := this._hasRotate := false
@@ -1026,7 +1117,7 @@ flashOnComplete := false
             this.__playSound()
             return
         }
-        if (this._hasRotate || this._hasZoom) {
+        if (this._repoHasRotate || this._hasZoom) {
             safetyFactor := 1.15
             diag := Sqrt(this.width ** 2 + this.height ** 2) * safetyFactor
             this.ResizeBuffer(Ceil(diag), Ceil(diag))
@@ -1073,7 +1164,7 @@ flashOnComplete := false
         ; PR1: system sound by alias, e.g. "SystemAsterisk", "SystemExclamation"
         if (this.sound = "")
             return
-        DllCall("winmm\PlaySoundW", "str", this.sound, "ptr", 0, "uint", 0x10001)
+        DllCall("winmm\PlaySoundW", "wstr", this.sound, "ptr", 0, "uint", 0x10001)
     }
 Tick() {
         now := A_TickCount
@@ -1082,16 +1173,41 @@ Tick() {
         ; Now it only updates currentX/Y; the state code (in/out/visible) runs after.
         repoWasActive := this.repoActive
         if (repoWasActive) {
-            elapsed := now - this.repoStartTime
-            rp := Min(1.0, elapsed / Max(1, this.repoDuration))
-            eased := ToastEasing.getEasing("easeOutCubic", rp)
-            this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
-            this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
-            if (rp >= 1.0) {
-                this.repoActive := false
-                this.currentX := this.repoTargetX
-                this.currentY := this.repoTargetY
-            }
+        elapsed := now - this.repoStartTime
+        rp := Min(1.0, elapsed / Max(1, this.repoDuration))
+        ; Repos easing: per-toast repoEasing, else inherit the entrance easing.
+        repoEase := (this.repoEasing != "") ? this.repoEasing : Toastify.config.repoEasing
+        if (repoEase = "")
+            repoEase := this.animEasing
+        if (this._repoEasingFn = 0 || this._repoEasingName != repoEase) {
+            this._repoEasingFn := ToastEasing.resolve(repoEase)
+            this._repoEasingName := repoEase
+        }
+        eased := this._repoEasingFn.Call(ToastEasing, rp)
+        this.currentX := this.repoStartX + (this.repoTargetX - this.repoStartX) * eased
+        this.currentY := this.repoStartY + (this.repoTargetY - this.repoStartY) * eased
+        ; Repos reposition gains the toast's animation style: the position slide
+        ; always runs (repos is a move), plus a brief pulse for zoom/rotate/fade
+        ; so it matches the entrance's visual character. Pulse peaks at the
+        ; midpoint and returns to rest at the end (no jump). Gating on _has*
+        ; reuses the flags set by AnimateIn; opacity pulse skips when
+        ; opacityOnHover owns opacity (else the visible-block hover code fights it).
+        pp := 4 * rp * (1 - rp)
+        if (this._repoHasZoom)
+            this.scale := 1 + 0.06 * pp
+        if (this._repoHasRotate && this.rotationDegree > 0)
+            this.rotation := 3 * pp
+        if (this._repoHasFade && !this.opacityOnHover)
+            this.opacity := this._baseOpacity * (1 - 0.18 * pp)
+        if (rp >= 1.0) {
+            this.repoActive := false
+            this.currentX := this.repoTargetX
+            this.currentY := this.repoTargetY
+            this.scale := 1.0
+            this.rotation := 0
+            if (this._repoHasFade && !this.opacityOnHover)
+                this.opacity := this._baseOpacity
+        }
         }
 
         ; ── 2) Entrance animation ──
@@ -1103,7 +1219,11 @@ Tick() {
             }
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
-            eased := ToastEasing.getEasing(this.animEasing, progress)
+            if (this._easingFn = 0 || this._easingName != this.animEasing) {
+                this._easingFn := ToastEasing.resolve(this.animEasing)
+                this._easingName := this.animEasing
+            }
+            eased := this._easingFn.Call(ToastEasing, progress)
             if (this._hasSlide) {
                 this.currentX := this.animStartX + (this.targetX - this.animStartX) * eased
                 this.currentY := this.animStartY + (this.targetY - this.animStartY) * eased
@@ -1121,7 +1241,12 @@ Tick() {
                 this.opacity := this._baseOpacity
                 this.scale := 1.0
                 this.rotation := 0
-                this.progressStartTime := this.progressBarWaitPosition ? now : this.creationTime
+                if (this.indeterminate)
+                    this.progressStartTime := Toastify.__now()
+                else if (this.progressBarWaitPosition)
+                    this.progressStartTime := now
+                else
+                    this.progressStartTime := this.creationTime + this._stagger
                 this.repoActive := false
                 ; Expanded buffer (rotate/zoom) stays alive until Destroy:
                 ; avoids realloc on entrance→visible and visible→exit (stutter).
@@ -1134,7 +1259,11 @@ Tick() {
         if (this.animState == "out") {
             elapsed := now - this.animStartTime
             progress := Min(1.0, elapsed / Max(1, this.animDuration))
-            eased := ToastEasing.getEasing(this.animEasing, progress)
+            if (this._easingFn = 0 || this._easingName != this.animEasing) {
+                this._easingFn := ToastEasing.resolve(this.animEasing)
+                this._easingName := this.animEasing
+            }
+            eased := this._easingFn.Call(ToastEasing, progress)
             if (this._hasSlide) {
                 this.currentX := this.exitStartX + (this.exitTargetX - this.exitStartX) * eased
                 this.currentY := this.exitStartY + (this.exitTargetY - this.exitStartY) * eased
@@ -1170,7 +1299,7 @@ Tick() {
                 }
                 if (this._hoverOpacityActive) {
                     e := Min(1.0, (now - this._hoverOpacityStart) / this._hoverOpacityDur)
-                    k := ToastEasing.getEasing("easeOutCubic", e)
+                    k := 1 - (1 - e) * (1 - e) * (1 - e)
                     this.opacity := this._hoverOpacityFrom + (this._hoverOpacityTarget - this._hoverOpacityFrom) * k
                     if (e >= 1.0) {
                         this._hoverOpacityActive := false
@@ -1181,34 +1310,33 @@ Tick() {
                 }
             }
             if (this.HasProgress() && !this.progressPaused) {
-                elapsed := now - this.progressStartTime
                 if (this.indeterminate) {
-                    ; PR8: pulsing bar, never completes (autoDismiss forced off)
-                    phase := Mod(elapsed, 2400) / 2400
-                    this.progress := 0.15 + 0.7 * (1 - Abs(2 * phase - 1))
-                } else
+                    elapsed := Toastify.__now() - this.progressStartTime
+                    phase := Mod(elapsed, 1600) / 1600
+                    p := (phase < 0.5) ? phase * 2 : 2 * (1 - phase)
+                    this.progress := p
+                } else {
+                    elapsed := now - this.progressStartTime
                     this.progress := Min(1.0, elapsed / this.duration)
+                }
                 diff := Abs(this.progress - this.lastProgress)
-                ; 30Hz cap: full 60Hz redraw of the bar wastes CPU for a 3px line
-                if (diff > 0.005 && (this.progress >= 1.0 || now - this._lastProgressDraw >= 33)) {
-                    this._lastProgressDraw := now
+                animating := this.indeterminate || this.progressStriped
+                qnow := Toastify.__now()
+                needsDraw := animating ? (qnow - this._lastProgressDraw >= 8)
+                    : (diff > 0.005 && (this.progress >= 1.0 || qnow - this._lastProgressDraw >= 33))
+                if (needsDraw) {
+                    this._lastProgressDraw := qnow
                     this.lastProgress := this.progress
                     ; Solo se redibuja el overlay de la barra (no el cache completo)
                     this.__drawProgress()
                     this.Draw()
                     drew := true
                 }
-                if (this.progress >= 1.0) {
-                    if (this.flashOnComplete && !this._flashUntil) {
-                        this._flashUntil := now + 400
-                        this.cacheDirty := true
-                    }
-                    if (this.autoDismiss) {
-                        if (!this.progressCompleteTime)
-                            this.progressCompleteTime := now
-                        else if (now - this.progressCompleteTime > Toast.progressGracePeriod)
-                            this.StartExit()
-                    }
+                if (this.progress >= 1.0 && this.autoDismiss) {
+                    if (!this.progressCompleteTime)
+                        this.progressCompleteTime := now
+                    else if (now - this.progressCompleteTime > Toast.progressGracePeriod)
+                        this.StartExit()
                 }
             }
             ; If the reposition just moved this tick, draw to reflect it.
@@ -1220,12 +1348,23 @@ Tick() {
     StartExit() {
         if (this.animState == "out")
             return
+        ; Repo fights exit: Tick applies repo before the out branch, so kill it
+        ; here or exit jitters toward the stale repo target for 1 frame.
+        this.repoActive := false
+        this.scale := 1.0
+        this.rotation := 0
+        this.progressCompleteTime := 0
         if ((this._hasRotate || this._hasZoom) && this.bufferWidth == this.width && this.bufferHeight == this.height) {
             safetyFactor := 1.15
             diag := Sqrt(this.width ** 2 + this.height ** 2) * safetyFactor
             this.ResizeBuffer(Ceil(diag), Ceil(diag))
         }
-        wa := ToastDPI.WorkArea(this.currentX, this.currentY)
+        ; Anchor the exit work area to the settled target, not to current:
+        ; mid-entrance current is off-screen → NEAREST returns the neighbor
+        ; monitor and the toast flies across screens.
+        waX := (this.targetX != 0 || this.targetY != 0) ? this.targetX : this.currentX
+        waY := (this.targetX != 0 || this.targetY != 0) ? this.targetY : this.currentY
+        wa := ToastDPI.WorkArea(waX, waY)
         offsetX := (this.bufferWidth - this.width) // 2
         offsetY := (this.bufferHeight - this.height) // 2
 
@@ -1291,7 +1430,7 @@ Tick() {
             }
         if (wasCloseHovered != this.closeHovered)
             this.__updateCloseHover()
-        if (!wasHovered && Toastify.hoverPauseEnabled && this.autoDismiss && this.duration > 0) {
+        if (!wasHovered && Toastify.hoverPauseEnabled && this.autoDismiss && this.duration > 0 && !this.indeterminate) {
             this.progressPaused := true
             this.progressPauseTime := A_TickCount
         }
@@ -1303,7 +1442,8 @@ Tick() {
         ; with the cursor still inside the toast (e.g. UpdateLayeredWindow
         ; refreshes the window and the system emits a spurious leave). Check
         ; the real cursor position before clearing hover.
-        pt := Buffer(8, 0)
+        static ptLeave := Buffer(8, 0)
+        pt := ptLeave
         DllCall("GetCursorPos", "ptr", pt)
         mx := NumGet(pt, 0, "int")
         my := NumGet(pt, 4, "int")
@@ -1328,7 +1468,7 @@ Tick() {
         }
         this.hovered := false
         this.closeHovered := false
-        if (this.autoDismiss && this.duration > 0) {
+        if (this.autoDismiss && this.duration > 0 && !this.indeterminate) {
             if (this.progressPaused) {
                 this.progressPaused := false
                 pausedDuration := A_TickCount - this.progressPauseTime
@@ -1368,9 +1508,10 @@ Tick() {
     Invalidate(remeasure := true) {
         this.cacheDirty := true
         this._textRendered := false
-        this._compositeDirty := true
+        this._closeHoveredRendered := -1
+        this._dirtyRect := "full"
         if (remeasure && this._initialized)
-            this.height := Max(this.height, this.__autoHeight())
+            this.height := Max(Toastify.config.minHeight, this.__autoHeight())
         if (this.animState == "visible" && !this.repoActive
             && (this.bufferWidth != this.width || this.bufferHeight != this.height))
             this.ResizeBuffer(this.width, this.height)
@@ -1407,7 +1548,7 @@ Tick() {
         if (newW == this.bufferWidth && newH == this.bufferHeight)
             return
 
-        ; Release previous resources
+        ; Release previous presentation resources
         if (this.G) {
             Gdip_DeleteGraphics(this.G)
             this.G := 0
@@ -1421,6 +1562,51 @@ Tick() {
             DeleteDC(this.hdc)
             this.hdc := 0
         }
+        ; Derivative caches are sized to width×height: drop them here so a
+        ; DPI change / rotate-expand never leaves stale-size bitmaps behind
+        ; (leak + clipped drawing). __drawCache rebuilds them lazily.
+        this.__deleteThemeCache()
+        if (this.GCache) {
+            Gdip_DeleteGraphics(this.GCache)
+            this.GCache := 0
+        }
+        if (this.pBitmapCache) {
+            Gdip_DisposeImage(this.pBitmapCache)
+            this.pBitmapCache := 0
+        }
+        if (this._GText) {
+            Gdip_DeleteGraphics(this._GText)
+            this._GText := 0
+        }
+        if (this._textBitmap) {
+            Gdip_DisposeImage(this._textBitmap)
+            this._textBitmap := 0
+        }
+        if (this._GProgress) {
+            Gdip_DeleteGraphics(this._GProgress)
+            this._GProgress := 0
+        }
+        if (this._progressBitmap) {
+            Gdip_DisposeImage(this._progressBitmap)
+            this._progressBitmap := 0
+        }
+        if (this._progressBgSnapshot) {
+            Gdip_DisposeImage(this._progressBgSnapshot)
+            this._progressBgSnapshot := 0
+        }
+        if (this._GClose) {
+            Gdip_DeleteGraphics(this._GClose)
+            this._GClose := 0
+        }
+        if (this._closeBitmap) {
+            Gdip_DisposeImage(this._closeBitmap)
+            this._closeBitmap := 0
+        }
+        if (this._stripePen) {
+            Gdip_DeletePen(this._stripePen)
+            this._stripePen := 0
+            this._stripePenW := 0
+        }
 
         ; Create new buffer
         this.bufferWidth := newW
@@ -1430,10 +1616,18 @@ Tick() {
         this.obm := SelectObject(this.hdc, this.hbm)
         this.G := Gdip_GraphicsFromHDC(this.hdc)
         this.__applyRenderQuality(this.G, false)
+        Gdip_SetInterpolationMode(this.G, 6)
+        ; Recreate the content cache at content size (not the expanded diag)
+        this.pBitmapCache := Gdip_CreateBitmap(this.width, this.height)
+        this.GCache := Gdip_GraphicsFromImage(this.pBitmapCache)
+        this.__applyRenderQuality(this.GCache, false)
         ; Fix #P2: clear immediately → any stray UpdateLayeredWindow (DWM
         ; refresh, stale size) shows transparent, never black garbage.
         Gdip_GraphicsClear(this.G, 0x00000000)
-        this._compositeDirty := true
+        this.cacheDirty := true
+        this._textRendered := false
+        this._closeHoveredRendered := -1
+        this._dirtyRect := "full"
         this._lastAlpha := -1
         this._lastRenderX := -999999
         this._lastRenderY := -999999
@@ -1475,6 +1669,10 @@ Tick() {
         this.__deleteThemeCache()
 
         ; Clear progress overlay
+        if (this._progressBgSnapshot) {
+            Gdip_DisposeImage(this._progressBgSnapshot)
+            this._progressBgSnapshot := 0
+        }
         if (this._GProgress) {
             Gdip_DeleteGraphics(this._GProgress)
             this._GProgress := 0
@@ -1490,6 +1688,11 @@ Tick() {
         if (this._closeBitmap) {
             Gdip_DisposeImage(this._closeBitmap)
             this._closeBitmap := 0
+        }
+        if (this._stripePen) {
+            Gdip_DeletePen(this._stripePen)
+            this._stripePen := 0
+            this._stripePenW := 0
         }
         hwnd := this.hwnd
         this.hwnd := 0

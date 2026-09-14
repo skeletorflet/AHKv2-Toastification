@@ -18,6 +18,8 @@ class ToastConfig {
     animStyle := "slide"
     animEntrance := "auto"
     repoDuration := 300
+    repoEasing := "easeOutCubic"
+    repoAnimStyle := "slide"
     renderQuality := "High"
     progressHeight := 3
 

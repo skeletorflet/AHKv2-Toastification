@@ -37,6 +37,9 @@ easingNames := [
     "easeInToLinear", "linearToEaseOut", "fastLinearToSlowEaseIn",
     "easeInOutCubicEmphasized",
 ]
+repoEasingNames := ["(inherit entrance)"]
+for e in easingNames
+    repoEasingNames.Push(e)
 entranceNames := ["auto", "right", "left", "top", "bottom"]
 qualityNames := ["Low", "Medium", "High"]
 weightNames := ["Regular", "Bold", "Italic", "BoldItalic"]
@@ -83,9 +86,14 @@ ui.Add("Text", "x480 y490 w70", "Priority:")
 ui.Add("Slider", "x550 y486 w180 vPriority Range0-10 ToolTip", 0)
 ui.Add("Checkbox", "x40 y525 vIndeterminate", "Indeterminate")
 ui.Add("Checkbox", "x170 yp vStriped", "Striped")
-ui.Add("Checkbox", "x270 yp vFlash", "Flash")
-ui.Add("Text", "x510 y530 w70", "Prog height:")
-ui.Add("Slider", "x570 y526 w250 vProgHeight Range1-10 ToolTip", 3)
+ui.Add("Text", "x270 y530 w80", "Stripe speed:")
+ui.Add("Slider", "x350 y526 w90 vStripeSpeed Range10-200 ToolTip", 40)
+ui.Add("Text", "x450 y530 w50", "Width:")
+ui.Add("Slider", "x495 y526 w60 vStripeWidth Range1-10 ToolTip", 3)
+ui.Add("Text", "x565 y530 w60", "Spacing:")
+ui.Add("Slider", "x620 y526 w80 vStripeSpacing Range4-20 ToolTip", 8)
+ui.Add("Text", "x510 y560 w70", "Prog height:")
+ui.Add("Slider", "x570 y556 w250 vProgHeight Range1-10 ToolTip", 3)
 
 ; ── Tab 2: Appearance ──
 tabs.UseTab(2)
@@ -138,8 +146,15 @@ ui.Add("Text", "x40 y200 w80", "Anim dur (ms):")
 ui.Add("Slider", "x120 y196 w280 vAnimDur Range100-1500 ToolTip", 300)
 ui.Add("Text", "x40 y235 w80", "Rotate (deg):")
 ui.Add("Slider", "x120 y231 w280 vRotation Range0-45 ToolTip", 10)
-ui.Add("Text", "x40 y270 w80", "Repo dur (ms):")
-ui.Add("Slider", "x120 y266 w280 vRepoDur Range100-800 ToolTip", 300)
+    ui.Add("Text", "x40 y270 w80", "Repo dur (ms):")
+    ui.Add("Slider", "x120 y266 w280 vRepoDur Range100-800 ToolTip", 300)
+    ui.Add("Text", "x40 y305 w80", "Repo easing:")
+    ui.Add("DropDownList", "x120 y301 w280 vRepoEasing Choose1", repoEasingNames)
+    ui.Add("Text", "x40 y340 w90", "Repo style:")
+    ui.Add("Checkbox", "x130 y340 vRepoSlide Checked", "Slide")
+    ui.Add("Checkbox", "x200 yp vRepoFade", "Fade")
+    ui.Add("Checkbox", "x270 yp vRepoZoom", "Zoom")
+    ui.Add("Checkbox", "x340 yp vRepoRotate", "Rotate")
 
 ; ── Tab 5: Global ──
 tabs.UseTab(5)
@@ -222,7 +237,7 @@ CollectConfig() {
         body: (Trim(g.Body) = "" ? "Your custom toast." : g.Body),
         theme: g.Theme,
         position: g.Position,
-        icon: (g.Icon = "random" ? Pick(iconNames) : g.Icon),
+        icon: (g.Icon = "random" ? Pick(iconNames, ["random", "none"]) : g.Icon),
         iconScale: g.IconScale,
         iconSize: g.IconSize,
         duration: g.Permanent ? 0 : g.Duration,
@@ -258,12 +273,16 @@ CollectConfig() {
         indeterminate: g.Indeterminate,
         progressHeight: g.ProgHeight,
         progressStriped: g.Striped,
-        flashOnComplete: g.Flash,
+        stripeSpeed: g.StripeSpeed,
+        stripeWidth: g.StripeWidth,
+        stripeSpacing: g.StripeSpacing,
         marginX: g.MarginX,
         marginY: g.MarginY,
         spacing: g.Spacing,
         maxToasts: g.MaxToasts,
         hoverPauseEnabled: g.HoverPause,
+        repoEasing: (g.RepoEasing = "(inherit entrance)" ? "" : g.RepoEasing),
+        repoAnimStyle: CollectRepoStyle(g),
     }
 }
 
@@ -292,7 +311,7 @@ RandomConfig() {
         body: Pick(bodies),
         theme: Pick(themeNames),
         position: Pick(positionNames),
-        icon: Pick(iconNames),
+        icon: Pick(iconNames, ["random"]),
         iconScale: Random(0.8, 1.2),
         iconSize: Random(16, 64),
         duration: indet ? 0 : (Random(0, 1) ? 0 : Random(1500, 8000)),
@@ -322,13 +341,17 @@ RandomConfig() {
         animDuration: Random(150, 900),
         rotationDegree: Random(0, 30),
         repoDuration: Random(150, 500),
+        repoEasing: (Random(0, 3) = 0 ? "" : Pick(easingNames)),
+        repoAnimStyle: RandomRepoStyle(),
         sound: Random(0, 1) ? "" : Pick(["SystemAsterisk", "SystemExclamation", "SystemHand", "SystemQuestion", "SystemNotification"]),
         tag: Random(0, 1) ? "" : "demo-" Random(1, 5),
         priority: Random(0, 5),
         indeterminate: indet,
         progressHeight: Random(1, 8),
         progressStriped: Random(0, 1) ? true : false,
-        flashOnComplete: Random(0, 1) ? true : false,
+        stripeSpeed: Random(20, 120),
+        stripeWidth: Random(2, 6),
+        stripeSpacing: Random(5, 16),
         marginX: Random(8, 40),
         marginY: Random(8, 40),
         spacing: Random(6, 30),
@@ -357,6 +380,8 @@ ShowToastFrom(cfg, applyLayout := true) {
         iconSize: cfg.iconSize,
         animStyle: cfg.animStyle,
         animEasing: cfg.easing,
+        repoEasing: cfg.repoEasing,
+        repoAnimStyle: cfg.repoAnimStyle,
         animEntrance: cfg.entrance,
         renderQuality: cfg.quality,
         animDuration: cfg.animDuration,
@@ -385,7 +410,9 @@ ShowToastFrom(cfg, applyLayout := true) {
         indeterminate: cfg.indeterminate,
         progressHeight: cfg.progressHeight,
         progressStriped: cfg.progressStriped,
-        flashOnComplete: cfg.flashOnComplete,
+        stripeSpeed: cfg.stripeSpeed,
+        stripeWidth: cfg.stripeWidth,
+        stripeSpacing: cfg.stripeSpacing,
     }
     Toastify.Show(cfg.title, cfg.body, buttons, opts)
 }
@@ -481,14 +508,29 @@ BuildCode(cfg) {
         lines.Push('    progressHeight: ' cfg.progressHeight ',')
     if cfg.progressStriped
         lines.Push('    progressStriped: true,')
-    if cfg.flashOnComplete
-        lines.Push('    flashOnComplete: true,')
+    if cfg.stripeSpeed != 40
+        lines.Push('    stripeSpeed: ' cfg.stripeSpeed ',')
+    if cfg.stripeWidth != 3
+        lines.Push('    stripeWidth: ' cfg.stripeWidth ',')
+    if cfg.stripeSpacing != 8
+        lines.Push('    stripeSpacing: ' cfg.stripeSpacing ',')
     styleStr := '['
     for i, s in cfg.animStyle
         styleStr .= (i > 1 ? ", " : "") '"' s '"'
     styleStr .= ']'
     lines.Push('    animStyle: ' styleStr ',')
     lines.Push('    animEasing: "' cfg.easing '",')
+    if cfg.repoEasing != ""
+        lines.Push('    repoEasing: "' cfg.repoEasing '",')
+    if HasValue(cfg.repoAnimStyle, "slide") && cfg.repoAnimStyle.Length=1
+        {} ; default omit
+    else {
+        rsStr := '['
+        for i, s in cfg.repoAnimStyle
+            rsStr .= (i>1 ? ", " : "") '"' s '"'
+        rsStr .= ']'
+        lines.Push('    repoAnimStyle: ' rsStr ',')
+    }
     lines.Push('    animEntrance: "' cfg.entrance '",')
     lines.Push('    renderQuality: "' cfg.quality '",')
     lines.Push('    animDuration: ' cfg.animDuration ',')
@@ -523,7 +565,45 @@ HasValue(haystack, needle) {
     return false
 }
 
-Pick(arr) => arr[Random(1, arr.Length)]
+CollectRepoStyle(g) {
+    s := []
+    if g.RepoSlide
+        s.Push("slide")
+    if g.RepoFade
+        s.Push("fade")
+    if g.RepoZoom
+        s.Push("zoom")
+    if g.RepoRotate
+        s.Push("rotate")
+    if s.Length = 0
+        s.Push("slide")
+    return s
+}
+RandomRepoStyle() {
+    styles := ["slide", "fade", "zoom", "rotate"]
+    s := []
+    loop Random(1, 3) {
+        v := Pick(styles)
+        if !HasValue(s, v)
+            s.Push(v)
+    }
+    if s.Length = 0
+        s.Push("slide")
+    return s
+}
+Pick(arr, exclude := 0) {
+    if (!exclude)
+        return arr[Random(1, arr.Length)]
+    loop 20 {
+        v := arr[Random(1, arr.Length)]
+        if !HasValue(exclude, v)
+            return v
+    }
+    for v in arr
+        if !HasValue(exclude, v)
+            return v
+    return arr[1]
+}
 
 ; ── all fonts installed on the system ──────────────────────
 SystemFonts() {

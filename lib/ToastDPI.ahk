@@ -19,9 +19,11 @@
 ; windows (UpdateLayeredWindow) are not bitmap-scaled by DWM
 ; → toasts render at design size (tiny on 200%).
 ; Top-level: runs at #Include time, before any window/GDI+ init.
-DllCall("SetThreadDpiAwarenessContext", "ptr", -4, "ptr")   ; PMv2, Win10 1703+
-DllCall("SetThreadDpiAwarenessContext", "ptr", -3, "ptr")   ; PMv1 fallback, Win10 1607+
-DllCall("SetProcessDPIAware")                                ; Win7/8 fallback
+try {
+    if !DllCall("SetThreadDpiAwarenessContext", "ptr", -4, "ptr")   ; PMv2, Win10 1703+
+        if !DllCall("SetThreadDpiAwarenessContext", "ptr", -3, "ptr")   ; PMv1 fallback, Win10 1607+
+            DllCall("SetProcessDPIAware")                                ; Win7/8 fallback
+}
 
 class ToastDPI {
 
@@ -38,22 +40,26 @@ class ToastDPI {
 
     ; ── DPI of the monitor hosting a window ─────────────────
     static ForWindow(hwnd) {
-        dpi := DllCall("GetDpiForWindow", "ptr", hwnd, "uint")
+        try
+            dpi := DllCall("GetDpiForWindow", "ptr", hwnd, "uint")
+        catch
+            dpi := 0
         return (dpi > 0) ? dpi : 96
     }
 
     ; ── DPI of the point (x,y) on screen ────────────────────
     static ForPoint(x, y) {
+        x := Integer(Round(x)), y := Integer(Round(y))
         pt := Buffer(8, 0)
-        NumPut("int", x, pt, 0)
-        NumPut("int", y, pt, 4)
-        hMon := DllCall("MonitorFromPoint", "ptr", pt, "uint", 2, "ptr")
+        NumPut("int", x, pt, 0), NumPut("int", y, pt, 4)
+        hMon := DllCall("MonitorFromPoint", "ptr", pt, "UInt", 2, "Ptr")
         return ToastDPI._DpiFromMonitor(hMon)
     }
 
     ; ── DPI of the primary monitor ───────────────────────────
     static Primary() {
-        hMon := DllCall("MonitorFromPoint", "ptr", Buffer(8, 0), "uint", 1, "ptr")
+        pt := Buffer(8, 0)
+        hMon := DllCall("MonitorFromPoint", "ptr", pt, "UInt", 1, "Ptr")
         return ToastDPI._DpiFromMonitor(hMon)
     }
 
@@ -68,13 +74,14 @@ class ToastDPI {
     ; ── work area of the monitor containing (x,y) ────────────
     ;    Returns {x,y,w,h} in physical px (global coordinates)
     static WorkArea(x := 0, y := 0) {
+        x := Integer(Round(x)), y := Integer(Round(y))
         pt := Buffer(8, 0)
-        NumPut("int", x, pt, 0)
-        NumPut("int", y, pt, 4)
-        hMon := DllCall("MonitorFromPoint", "ptr", pt, "uint", 2, "ptr")
+        NumPut("int", x, pt, 0), NumPut("int", y, pt, 4)
+        hMon := DllCall("MonitorFromPoint", "ptr", pt, "UInt", 2, "Ptr")
         info := Buffer(40, 0)
         NumPut("uint", 40, info, 0)     ; cbSize
-        DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info)
+        if (!DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info))
+            return { x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight }
         ; rcWork starts at offset 20 (after 16-byte rcMonitor + 4-byte cbSize)
         ; Layout: cbSize(4) rcMonitor(16) rcWork(16) dwFlags(4)
         return {
@@ -87,13 +94,14 @@ class ToastDPI {
 
     ; ── full monitor rect (not work area) ────────────────────
     static MonitorRect(x := 0, y := 0) {
+        x := Integer(Round(x)), y := Integer(Round(y))
         pt := Buffer(8, 0)
-        NumPut("int", x, pt, 0)
-        NumPut("int", y, pt, 4)
-        hMon := DllCall("MonitorFromPoint", "ptr", pt, "uint", 2, "ptr")
+        NumPut("int", x, pt, 0), NumPut("int", y, pt, 4)
+        hMon := DllCall("MonitorFromPoint", "ptr", pt, "UInt", 2, "Ptr")
         info := Buffer(40, 0)
         NumPut("uint", 40, info, 0)
-        DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info)
+        if (!DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info))
+            return { x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight }
         return {
             x: NumGet(info, 4, "int"),
             y: NumGet(info, 8, "int"),
@@ -102,20 +110,32 @@ class ToastDPI {
         }
     }
 
+    ; ── cursor position (fallback anchor when no toast exists yet) ──
+    static CursorPoint() {
+        pt := Buffer(8, 0)
+        try {
+            if (DllCall("GetCursorPos", "ptr", pt))
+                return { x: NumGet(pt, 0, "int"), y: NumGet(pt, 4, "int") }
+        }
+        return { x: 0, y: 0 }
+    }
+
     ; ── private: DPI of an HMONITOR ──────────────────────────
     static _DpiFromMonitor(hMon) {
         dpiX := 0, dpiY := 0
         pX := Buffer(4, 0)
         pY := Buffer(4, 0)
         ; MDT_EFFECTIVE_DPI = 0
-        if !DllCall("Shcore\GetDpiForMonitor",
-            "ptr", hMon, "uint", 0,
-            "ptr", pX, "ptr", pY, "hresult") {
-            return NumGet(pX, 0, "uint")
+        try {
+            if !DllCall("Shcore\GetDpiForMonitor",
+                "ptr", hMon, "uint", 0,
+                "ptr", pX.Ptr, "ptr", pY.Ptr, "HRESULT") {
+                return NumGet(pX, 0, "uint")
+            }
         }
         ; fallback
         hdc := DllCall("GetDC", "ptr", 0, "ptr")
-        dpi := DllCall("gdi32\GetDeviceCaps", "ptr", hdc, "int", 88)
+        dpi := DllCall("gdi32\GetDeviceCaps", "ptr", hdc, "int", 88, "int")
         DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
         return (dpi > 0) ? dpi : 96
     }

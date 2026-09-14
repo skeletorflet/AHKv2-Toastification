@@ -162,15 +162,18 @@ Toastify.Show("Title", "Body", [], {
 | `animEntrance` | string | `"auto"` | `AUTO` resolves from position |
 | `animDuration` | int (ms) | `300` | In/out animation length |
 | `repoDuration` | int (ms) | `300` | Reorder animation length |
+| `repoEasing` | string | `""` (inherit `animEasing`) | Easing for the reposition slide; empty = use the toast's `animEasing` |
 | `onClick` | callback | — | Fires when toast body clicked (not buttons) |
 | `onClose` | callback | — | Fires when toast is closed |
 | `sound` | string | `""` | System sound alias, e.g. `"SystemAsterisk"`, `"SystemExclamation"` |
-| `tag` | string | `""` | Group/dedupe key — same tag replaces the existing toast |
+| `tag` | string | `""` | Group/dedupe key — same tag replaces the existing toast (case-sensitive) |
 | `priority` | int | `0` | Higher priority survives eviction when `maxToasts` or screen space is hit |
-| `indeterminate` | bool | `false` | Pulsing progress bar; forces `showProgress`, `autoDismiss := false` |
+| `indeterminate` | bool | `false` | Smooth 0→100% fill loop (1800ms); forces `showProgress`, `autoDismiss := false` |
 | `progressHeight` | int | global (`3`) | Progress bar thickness (design px) |
-| `progressStriped` | bool | `false` | Diagonal stripes over the progress fill |
-| `flashOnComplete` | bool | `false` | Accent border pulse when the bar completes |
+| `progressStriped` | bool | `false` | Animated diagonal stripes over the progress fill |
+| `stripeSpeed` | int (px/s) | `40` | Marquee scroll speed of the stripes |
+| `stripeWidth` | int (px) | `3` | Stripe thickness (design px) |
+| `stripeSpacing` | int (px) | `8` | Distance between stripes (design px) |
 | `blurBehind` | bool | `false` | Real backdrop blur: captures the screen behind the window, blurs it (downscale/upscale), clips it to the rounded card. Refreshed ~3×/s while visible |
 | `marginX` | int | `-1` | Per-toast horizontal margin; `-1` = global `Toastify.marginX` |
 | `marginY` | int | `-1` | Per-toast vertical margin; `-1` = global `Toastify.marginY` |
@@ -259,7 +262,7 @@ Global behavior flags (set before/after `Start`):
 
 | Flag | Default | Effect |
 |---|---|---|
-| `Toastify.escEnabled` | `false` | Opt-in global `Esc` hotkey dismisses the newest toast |
+| `Toastify.escEnabled` | `false` | Opt-in global `Esc` hotkey dismisses the newest toast (`Toastify.SetEscEnabled(true)` toggles it live, even after `Start`) |
 | `Toastify.reducedMotion` | auto | Read from Windows `SPI_GETCLIENTAREAANIMATION`; toasts land instantly when animations are off |
 | `Toastify.highContrast` | auto | Read from `SPI_GETHIGHCONTRAST`; default theme becomes `"minimal"` while active |
 
@@ -339,9 +342,9 @@ automatically for every theme, including custom ones.
 
 ### Indeterminate progress
 
-With `indeterminate: true` the bar shows a pulsing 15%→85% cycle and never
-completes; `autoDismiss` is forced off. Combine with `progressStriped` and
-`flashOnComplete` for richer feedback.
+With `indeterminate: true` the bar fills smoothly 0→100% in a loop and never
+completes; `autoDismiss` is forced off. Combine with `progressStriped` for a
+scrolling marquee effect.
 
 ## Demo
 
@@ -349,6 +352,48 @@ completes; `autoDismiss` is forced off. Combine with `progressStriped` and
 Windows actions (Notepad, Calculator, voice, clipboard, Settings, Explorer,
 Task Manager, mute, ...), random buttons, animation, easing, entrance, theme,
 alignment (including per-toast overrides), duration, and opacity.
+
+## Tests
+
+Automated harnesses in `tests/` (run with `AutoHotkeyUX.exe tests\<name>.ahk`;
+each writes `%TEMP%\toastify_<name>_result.txt` and exits `0`/`1`):
+
+| Harness | What it checks |
+|---|---|
+| `stress.ahk` | Reflow storms, `maxToasts` eviction, case-sensitive tag dedupe, `DismissGroup`, 200 `Show`/`Dismiss` cycles with empty registry |
+| `leak.ahk` | GDI + USER handle deltas and working set over 200 worst-case cycles (icons, striped progress, actions) |
+| `dllcall.ahk` | DPI math tables, work-area rects, live `GetDpiForWindow`, `TrackMouseEvent`/`HIGHCONTRAST` struct sizes, easing resolver |
+| `bench.ahk` | Entrance-animation fps/avg/p95 across the Low/Medium/High × 1/3-toast matrix (fails on p95 > 35ms), CSV report |
+
+## Changelog
+
+### Unreleased — reliability hardening
+
+- **Correctness.** Fixed `TRACKMOUSEEVENT` struct size (24 bytes on x64),
+  `HIGHCONTRASTW` (16 bytes), `SetWindowLongPtr` return check with
+  `SW_RESTORE` fallback, `PlaySoundW` Unicode alias, DPI helper signatures
+  (real `POINT` structs, explicit out-pointers, declared return types), and
+  return-value checks on `GetMonitorInfo`/`SystemParametersInfo`.
+- **Zero leaks.** `ResizeBuffer` now rebuilds every derivative cache (no more
+  stale-size bitmaps after `WM_DPICHANGED`); removed dead brushes, pens, and
+  fields; `Shutdown` unregisters `OnMessage` handlers and the `Esc` hotkey,
+  clears the theme map, and never throws from `OnExit`; 1s sweep reaps
+  externally-destroyed windows while suspended; `try/finally` on snapshots.
+- **Races and state.** `StartExit` kills the repo animation (no 1-frame
+  jitter); clone-and-try enumeration in the tick and click paths; case-sensitive
+  tags; `SetEscEnabled()` live toggle; unified QPC progress clock (no more
+  phantom 60Hz redraws); button div/0 guards; stagger-aware progress start.
+- **Multi-monitor / DPI.** Cursor-anchored fallback instead of assuming `(0,0)`,
+  per-toast DPI correction after layout, exit anchored to the target monitor,
+  guarded DPI-awareness init, close-button theme invalidation, `Invalidate`
+  shrink support.
+- **Performance.** Easing `Func` resolved once per toast, inline hover cubic,
+  cached stripe pen, `SetInterpolationMode` set once, static cursor buffers,
+  quickselect p95 in telemetry. Steady ~64fps entrance animation.
+- **Themes and tools.** Strict `RegisterTheme` validation with
+  `ParseARGB("#RGB/#RRGGBB/#AARRGGBB")`, unknown-theme debug notice,
+  `ShowView` unified through the standard creation path (dedupe, eviction,
+  DPI, stagger), `theme_generator` codegen fixes.
 
 ## License
 
