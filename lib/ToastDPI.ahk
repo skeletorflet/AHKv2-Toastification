@@ -27,16 +27,12 @@ try {
 
 class ToastDPI {
 
-    ; ── one-time init ────────────────────────────────────────
-    static _ready := false
+    ; ── cache hMon → dpi ──
+    ;    GetDpiForMonitor es caro para llamarlo en cada toast; el valor solo
+    ;    cambia con WM_DPICHANGED, que lo invalida (ver ClearCache).
+    static _dpiCache := Map()
 
-    static Init() {
-        if ToastDPI._ready
-            return
-        ; Awareness was already enabled above (top-level, at #Include).
-        ; Nothing else to do here.
-        ToastDPI._ready := true
-    }
+    static ClearCache() => ToastDPI._dpiCache.Clear()
 
     ; ── DPI of the monitor hosting a window ─────────────────
     static ForWindow(hwnd) {
@@ -71,9 +67,9 @@ class ToastDPI {
     ;    Always uses Round() to avoid fractional px.
     static Px(designPts, dpi) => Round(designPts * dpi / 96)
 
-    ; ── work area of the monitor containing (x,y) ────────────
-    ;    Returns {x,y,w,h} in physical px (global coordinates)
-    static WorkArea(x := 0, y := 0) {
+    ; ── private: MONITORINFO for the monitor containing (x,y) ──
+    ;    Returns {hMon, info}; info is 0 if GetMonitorInfo failed.
+    static _GetMonitorInfo(x, y) {
         x := Integer(Round(x)), y := Integer(Round(y))
         pt := Buffer(8, 0)
         NumPut("int", x, pt, 0), NumPut("int", y, pt, 4)
@@ -81,7 +77,17 @@ class ToastDPI {
         info := Buffer(40, 0)
         NumPut("uint", 40, info, 0)     ; cbSize
         if (!DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info))
+            return { hMon: hMon, info: 0 }
+        return { hMon: hMon, info: info }
+    }
+
+    ; ── work area of the monitor containing (x,y) ────────────
+    ;    Returns {x,y,w,h} in physical px (global coordinates)
+    static WorkArea(x := 0, y := 0) {
+        mi := ToastDPI._GetMonitorInfo(x, y)
+        if (!mi.info)
             return { x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight }
+        info := mi.info
         ; rcWork starts at offset 20 (after 16-byte rcMonitor + 4-byte cbSize)
         ; Layout: cbSize(4) rcMonitor(16) rcWork(16) dwFlags(4)
         return {
@@ -94,14 +100,10 @@ class ToastDPI {
 
     ; ── full monitor rect (not work area) ────────────────────
     static MonitorRect(x := 0, y := 0) {
-        x := Integer(Round(x)), y := Integer(Round(y))
-        pt := Buffer(8, 0)
-        NumPut("int", x, pt, 0), NumPut("int", y, pt, 4)
-        hMon := DllCall("MonitorFromPoint", "ptr", pt, "UInt", 2, "Ptr")
-        info := Buffer(40, 0)
-        NumPut("uint", 40, info, 0)
-        if (!DllCall("GetMonitorInfo", "ptr", hMon, "ptr", info))
+        mi := ToastDPI._GetMonitorInfo(x, y)
+        if (!mi.info)
             return { x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight }
+        info := mi.info
         return {
             x: NumGet(info, 4, "int"),
             y: NumGet(info, 8, "int"),
@@ -122,7 +124,8 @@ class ToastDPI {
 
     ; ── private: DPI of an HMONITOR ──────────────────────────
     static _DpiFromMonitor(hMon) {
-        dpiX := 0, dpiY := 0
+        if (ToastDPI._dpiCache.Has(hMon))
+            return ToastDPI._dpiCache[hMon]
         pX := Buffer(4, 0)
         pY := Buffer(4, 0)
         ; MDT_EFFECTIVE_DPI = 0
@@ -130,13 +133,17 @@ class ToastDPI {
             if !DllCall("Shcore\GetDpiForMonitor",
                 "ptr", hMon, "uint", 0,
                 "ptr", pX.Ptr, "ptr", pY.Ptr, "HRESULT") {
-                return NumGet(pX, 0, "uint")
+                dpi := NumGet(pX, 0, "uint")
+                ToastDPI._dpiCache[hMon] := dpi
+                return dpi
             }
         }
         ; fallback
         hdc := DllCall("GetDC", "ptr", 0, "ptr")
         dpi := DllCall("gdi32\GetDeviceCaps", "ptr", hdc, "int", 88, "int")
         DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
-        return (dpi > 0) ? dpi : 96
+        dpi := (dpi > 0) ? dpi : 96
+        ToastDPI._dpiCache[hMon] := dpi
+        return dpi
     }
 }

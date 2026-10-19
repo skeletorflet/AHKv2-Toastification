@@ -355,6 +355,18 @@ class ToastTheme {
         }
         if !palette.HasOwnProp("borderWidth")
             palette.borderWidth := 1.5
+        ; Lazy: acá NO se crea ningún handle GDI+. Solo colores + defaults +
+        ; contraste. Los pens/brushes se materializan en __materialize() ante
+        ; el primer palette(name) que pida el tema.
+        palette.__materialized := false
+        ToastTheme.CheckContrast(name, palette)
+        ToastTheme.themes[name] := palette
+    }
+
+    ; Crea los pens/brushes GDI+ de un tema ya registrado. Corre una sola vez
+    ; por tema (on-demand desde palette()); el resultado queda cacheado en el
+    ; propio objeto paleta.
+    static __materialize(palette) {
         palette.borderPen := Gdip_CreatePen(palette.border, palette.borderWidth)
         palette.accentBrush := Gdip_BrushCreateSolid(palette.accent)
         ; Button border: WCAG-onAccent at 20% alpha — adapts to light/dark accents
@@ -370,12 +382,8 @@ class ToastTheme {
         palette.iconFgBrush := Gdip_BrushCreateSolid(iconFg)
         palette.iconFgPen := Gdip_CreatePen(iconFg, 3)
         palette.iconFgPen2 := Gdip_CreatePen(iconFg, 2)
-        ; Legacy white icons (kept for custom themes referencing them)
-        palette.iconWhiteBrush := Gdip_BrushCreateSolid(0xFFFFFFFF)
-        palette.iconWhitePen := Gdip_CreatePen(0xFFFFFFFF, 3)
-        palette.iconWhitePen2 := Gdip_CreatePen(0xFFFFFFFF, 2)
-        ToastTheme.CheckContrast(name, palette)
-        ToastTheme.themes[name] := palette
+        palette.__materialized := true
+        return palette
     }
 
     static luminance(c) {
@@ -409,9 +417,16 @@ class ToastTheme {
         if (theme == "auto")
             theme := ToastTheme.ResolveAuto()
         if (ToastTheme.themes.Has(theme))
-            return ToastTheme.themes[theme]
+            return ToastTheme.__ensureMaterialized(ToastTheme.themes[theme])
         OutputDebug("Toastify: unknown theme '" theme "' → fallback 'dark'")
-        return ToastTheme.themes["dark"]
+        return ToastTheme.__ensureMaterialized(ToastTheme.themes["dark"])
+    }
+
+    ; Devuelve la paleta materializada (crea los handles GDI+ solo la primera vez).
+    static __ensureMaterialized(palette) {
+        if (!palette.HasOwnProp("__materialized") || !palette.__materialized)
+            ToastTheme.__materialize(palette)
+        return palette
     }
 
     ; ── "auto" follows the Windows app theme ──
@@ -424,6 +439,9 @@ class ToastTheme {
     }
 
     static DeletePalette(pal) {
+        ; Lazy: sin materializar no hay handles que liberar.
+        if (pal.HasOwnProp("__materialized") && !pal.__materialized)
+            return
         try Gdip_DeletePen(pal.borderPen)
         try Gdip_DeleteBrush(pal.accentBrush)
         try Gdip_DeletePen(pal.btnBorderPen)
@@ -433,9 +451,6 @@ class ToastTheme {
         try Gdip_DeleteBrush(pal.iconFgBrush)
         try Gdip_DeletePen(pal.iconFgPen)
         try Gdip_DeletePen(pal.iconFgPen2)
-        try Gdip_DeleteBrush(pal.iconWhiteBrush)
-        try Gdip_DeletePen(pal.iconWhitePen)
-        try Gdip_DeletePen(pal.iconWhitePen2)
     }
     static Shutdown() {
         for name, pal in ToastTheme.themes

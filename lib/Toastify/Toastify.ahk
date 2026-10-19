@@ -19,9 +19,26 @@ class Toastify {
     static __perfFast := false
     static __frameStats := []
     static __frameStatsIdx := 0
+    ; ── Coste REAL del frame (QPC) ──
+    ;    __frameStats guarda el INTERVALO entre ticks (cuánto tarda el timer),
+    ;    esto guarda lo que cuesta atenderlo: FPS() reporta ambos.
+    static __costStats := []
+    static __costIdx := 0
+    static __costMax := 0
+    ; ── Contador de UpdateLayeredWindow (compositor) ──
+    static __ulwTotal := 0
+    ; Delay con el que está armado el timer (evita re-armarlo en cada wake)
+    static __armedDelay := 0
+    ; Prioridad del proceso anfitrión, para restaurarla al salir de modo rápido
+    static __origPriority := 0
     static _reflowNeeded := false
     static __active := false
     static __suspended := false
+    ; ── Windows messages usados por los hooks de la lib ──
+    static WM_LBUTTONDOWN := 0x0201
+    static WM_MOUSEMOVE := 0x0200
+    static WM_MOUSELEAVE := 0x02A3
+    static WM_DPICHANGED := 0x02E0
 
     static __wasAnyIconic := false
     static registry := Map()
@@ -169,12 +186,7 @@ class Toastify {
         REALTIME: "Realtime"
     }
     static SetConfig(cfg) {
-        static keys := ["fontName", "fontSizeTitle", "fontSizeBody", "fontWeightTitle", "fontWeightBody",
-            "width", "minHeight", "borderRadius", "borderWidth", "iconSize", "iconScale", "designScale", "paddingX", "paddingY", "repoDuration", "repoEasing", "repoAnimStyle",
-            "animDuration", "animEasing", "animStyle", "animEntrance", "renderQuality",
-            "rotationDegree"]
-
-        for key in keys {
+        for key in ToastConfig.AllKeys {
 
             if cfg.HasProp(key)
                 Toastify.config.%key% := cfg.%key%
@@ -186,7 +198,6 @@ class Toastify {
 
 static Start(theme := "dark", position := "top-right") {
         if !Toastify.pToken {
-            ToastDPI.Init()                     ; Per-Monitor v2 awareness
             pt := Gdip_Startup()
             if !pt {
                 MsgBox("GDI+ startup failed")
@@ -197,6 +208,11 @@ static Start(theme := "dark", position := "top-right") {
             OnExit((*) => Toastify.Shutdown())
             Toastify.__hClick := (wParam, lParam, msg, hwnd) =>
                 Toastify.__Click(wParam, lParam, msg, hwnd)
+            ; Prioridad del host: la restauramos al salir de modo rápido (antes
+            ; se forzaba NORMAL y se pisaba la del script anfitrión).
+            ; OJO: AHK v2 NO tiene ProcessGetPriority → la clase se lee con
+            ; GetPriorityClass (kernel32).
+            try Toastify.__origPriority := Toastify.__priorityClass()
             ; Native hover: WM_MOUSEMOVE + TrackMouseEvent/WM_MOUSELEAVE.
             ; Windows resolves z-order: only the topmost toast receives messages.
             Toastify.__hMove := (wParam, lParam, msg, hwnd) =>
@@ -205,10 +221,10 @@ static Start(theme := "dark", position := "top-right") {
                 Toastify.__onMouseLeave(hwnd)
             Toastify.__hDpi := (wParam, lParam, msg, hwnd) =>
                 Toastify.__onDpiChanged(hwnd)
-            OnMessage(0x201, Toastify.__hClick)
-            OnMessage(0x200, Toastify.__hMove)
-            OnMessage(0x2A3, Toastify.__hLeave)
-            OnMessage(0x02E0, Toastify.__hDpi)
+            OnMessage(Toastify.WM_LBUTTONDOWN, Toastify.__hClick)
+            OnMessage(Toastify.WM_MOUSEMOVE, Toastify.__hMove)
+            OnMessage(Toastify.WM_MOUSELEAVE, Toastify.__hLeave)
+            OnMessage(Toastify.WM_DPICHANGED, Toastify.__hDpi)
             Toastify.__globalTimer := ObjBindMethod(Toastify, "__globalTick")
             Toastify.__lastTickTime := Toastify.__now()
             Toastify.__frameCounter := 0
@@ -271,6 +287,7 @@ static Start(theme := "dark", position := "top-right") {
             Toastify.__setPerfMode(true)
             Toastify.__lastTickTime := Toastify.__now()
             ; ponytail: -8ms rel entrega ~16ms reales (QPC verificado) → 60fps
+            Toastify.__armedDelay := 8
             SetTimer(Toastify.__globalTimer, -8)
         } else {
             Toastify.__setPerfMode(false)
@@ -286,21 +303,42 @@ static Start(theme := "dark", position := "top-right") {
         Toastify.__perfFast := fast
         if (fast) {
             DllCall("Winmm.dll\timeBeginPeriod", "UInt", 2)
-            ProcessSetPriority(Toastify.PRIORITY.ABOVE_NORMAL)
+            ; Solo se sube la prioridad si el host está en Normal o menos:
+            ; si el script anfitrión ya corre en High/Realtime, se respeta.
+            if (!Toastify.__isLowPriority(Toastify.__origPriority))
+                ProcessSetPriority(Toastify.PRIORITY.ABOVE_NORMAL)
         } else {
             DllCall("Winmm.dll\timeEndPeriod", "UInt", 2)
-            ProcessSetPriority(Toastify.PRIORITY.NORMAL)
+            if (Toastify.__origPriority)
+                try ProcessSetPriority(Toastify.__origPriority)
         }
+    }
+    ; ── Priority class del proceso actual como string de ProcessSetPriority ──
+    ;    AHK v2 no expone ProcessGetPriority; GetPriorityClass → mapeo directo.
+    ;    PRIORITY_CLASS: IDLE 0x40, BELOW_NORMAL 0x4000, NORMAL 0x20,
+    ;    ABOVE_NORMAL 0x8000, HIGH 0x80, REALTIME 0x100.
+    static __priorityClass() {
+        ; OJO: la variable NO puede llamarse `map` — en AHK v2 el nombre local
+        ; tapa al constructor Map() y la línea lanza "variable not assigned".
+        static pcMap := Map(0x40, Toastify.PRIORITY.IDLE, 0x4000, Toastify.PRIORITY.BELOW_NORMAL
+            , 0x20, Toastify.PRIORITY.NORMAL, 0x8000, Toastify.PRIORITY.ABOVE_NORMAL
+            , 0x80, Toastify.PRIORITY.HIGH, 0x100, Toastify.PRIORITY.REALTIME)
+        pc := DllCall("GetPriorityClass", "ptr", DllCall("GetCurrentProcess", "ptr"), "uint")
+        return pcMap.Has(pc) ? pcMap[pc] : ""
+    }
+    static __isLowPriority(p) {
+        return (p = "" || p = Toastify.PRIORITY.IDLE || p = Toastify.PRIORITY.BELOW_NORMAL
+            || p = Toastify.PRIORITY.NORMAL)
     }
 
     static Shutdown(*) {
         Toastify.__setActive(false)
         try SetTimer(Toastify.__sweepTimer, 0)
         if (Toastify.__hClick) {
-            try OnMessage(0x201, Toastify.__hClick, 0)
-            try OnMessage(0x200, Toastify.__hMove, 0)
-            try OnMessage(0x2A3, Toastify.__hLeave, 0)
-            try OnMessage(0x02E0, Toastify.__hDpi, 0)
+            try OnMessage(Toastify.WM_LBUTTONDOWN, Toastify.__hClick, 0)
+            try OnMessage(Toastify.WM_MOUSEMOVE, Toastify.__hMove, 0)
+            try OnMessage(Toastify.WM_MOUSELEAVE, Toastify.__hLeave, 0)
+            try OnMessage(Toastify.WM_DPICHANGED, Toastify.__hDpi, 0)
             Toastify.__hClick := Toastify.__hMove := Toastify.__hLeave := Toastify.__hDpi := 0
         }
         try Hotkey("Esc", "Off")
@@ -315,6 +353,7 @@ static Start(theme := "dark", position := "top-right") {
         Toastify.exitingToasts := []
         if Toastify.pToken {
             Toast.FreeFontCache()
+            Toast.FreeShadowCache()
             ToastTheme.Shutdown()
             try Gdip_Shutdown(Toastify.pToken)
             Toastify.pToken := 0
@@ -495,7 +534,8 @@ static Start(theme := "dark", position := "top-right") {
 
         t.AnimateIn()
         t.Draw()
-        Toastify._reflowNeeded := true
+        ; Ya se refloweó arriba: marcar _reflowNeeded forzaba un SEGUNDO reflow
+        ; completo de todos los toasts en el tick siguiente.
         return t
     }
 
@@ -586,13 +626,18 @@ static Start(theme := "dark", position := "top-right") {
             ; bottom branch broke that assumption → toasts at (0,0)).
             targets := []
 
+            ; ── Overflow ──
+            ; Antes los toasts que no entraban quedaban SIN target (targetX/Y=0)
+            ; y AnimateIn() los hacía volar a (0,0) de la pantalla. Ahora siempre
+            ; reciben target: se apilan pegados al borde que les corresponde.
             if (!isBottom && !isMidV) {
                 cursor := wa.y + marginY
+                maxY := wa.y + wa.h - marginY
                 for idx, t in group {
-                    if (cursor + t.height > wa.y + wa.h - marginY)
-                        break   ; just don't assign a position to those that don't fit
-                    targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
-                    cursor += t.height + spacing
+                    y := (cursor + t.height > maxY) ? Max(wa.y + marginY, maxY - t.height) : cursor
+                    targets.Push({ x: _getX(t, pos), y: y, gi: idx })
+                    if (cursor + t.height <= maxY)
+                        cursor += t.height + spacing
                 }
             } else if (isBottom) {
                 cursor := wa.y + wa.h - marginY
@@ -600,10 +645,8 @@ static Start(theme := "dark", position := "top-right") {
                     idx := total + 1 - A_Index
                     t := group[idx]
                     cursor -= t.height
-                    if (cursor < wa.y + marginY) {
-                        cursor += t.height  ; revertir
-                        break
-                    }
+                    if (cursor < wa.y + marginY)
+                        cursor := wa.y + marginY
                     targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
                     cursor -= spacing
                 }
@@ -613,11 +656,12 @@ static Start(theme := "dark", position := "top-right") {
                     totalH += t.height + spacing
                 totalH -= spacing
                 cursor := Max(wa.y + marginY, waSCY - totalH // 2)
+                maxY := wa.y + wa.h - marginY
                 for idx, t in group {
-                    if (cursor + t.height > wa.y + wa.h - marginY)
-                        break   ; truncate overflow in midV too
-                    targets.Push({ x: _getX(t, pos), y: cursor, gi: idx })
-                    cursor += t.height + spacing
+                    y := (cursor + t.height > maxY) ? Max(wa.y + marginY, maxY - t.height) : cursor
+                    targets.Push({ x: _getX(t, pos), y: y, gi: idx })
+                    if (cursor + t.height <= maxY)
+                        cursor += t.height + spacing
                 }
             }
 
@@ -701,8 +745,16 @@ static Start(theme := "dark", position := "top-right") {
     }
     static FPS() {
         s := Toastify.__frameStats
+        ; Coste real del frame + contadores de ULW (independientes del intervalo)
+        cs := Toastify.__costStats
+        costSum := 0.0
+        for v in cs
+            costSum += v
+        costAvg := (cs.Length > 0) ? Round(costSum / cs.Length, 2) : 0
         if (s.Length < 2)
-            return { fps: 0, avg: 0, p95: 0, max: 0, samples: s.Length }
+            return { fps: 0, avg: 0, p95: 0, max: 0, samples: s.Length
+                , cost: costAvg, costMax: Round(Toastify.__costMax, 2), costSamples: cs.Length
+                , ulw: Toastify.__ulwTotal }
         total := 0
         mx := 0.0
         for v in s {
@@ -733,9 +785,30 @@ static Start(theme := "dark", position := "top-right") {
                 hi := j
         }
         return { fps: Round(1000 / avg, 1), avg: Round(avg, 2)
-            , p95: Round(c[k], 2), max: Round(mx, 2), samples: s.Length }
+            , p95: Round(c[k], 2), max: Round(mx, 2), samples: s.Length
+            , cost: costAvg, costMax: Round(Toastify.__costMax, 2), costSamples: cs.Length
+            , ulw: Toastify.__ulwTotal }
     }
+    ; Mide el COSTE del frame (QPC): __frameStats solo guarda el intervalo del
+    ; timer. Sin esto "60 fps" no distingue un frame de 1ms de uno de 14ms.
     static __globalTick(*) {
+        t0 := Toastify.__now()
+        delay := Toastify.__tickBody()
+        if (delay < 100)
+            Toastify.__pushCost(Toastify.__now() - t0)
+    }
+    static __pushCost(v) {
+        if (Toastify.__costStats.Length < 64)
+            Toastify.__costStats.Push(v)
+        else {
+            Toastify.__costIdx := Mod(Toastify.__costIdx, 64)
+            Toastify.__costStats[Toastify.__costIdx + 1] := v
+            Toastify.__costIdx++
+        }
+        if (v > Toastify.__costMax)
+            Toastify.__costMax := v
+    }
+    static __tickBody() {
         now := Toastify.__now()
         elapsed := now - Toastify.__lastTickTime
         Toastify.__lastTickTime := now
@@ -745,7 +818,7 @@ static Start(theme := "dark", position := "top-right") {
         if (Toastify.toasts.Length + Toastify.exitingToasts.Length + Toastify.registry.Count = 0
             && !Toastify._reflowNeeded) {
             Toastify.__setActive(false)
-            return
+            return 100
         }
         ; ── All-static toasts: suspend the timer entirely → 0% CPU.
         ;    Woken by any mouse input (__wake). ponytail: watchdog/dead-window
@@ -755,10 +828,11 @@ static Start(theme := "dark", position := "top-right") {
             Toastify.__suspended := true
             if (Toastify.__active)
                 Toastify.__setActive(false)
-            return
+            return delay
         }
         Toastify.__suspended := false
         Toastify.__setActive(true)
+        Toastify.__armedDelay := delay
         SetTimer(Toastify.__globalTimer, -delay)
         ; Tri-estado: semi-idle (100ms) → prioridad normal + liberar timer resolution
         Toastify.__setPerfMode(delay < 100)
@@ -958,6 +1032,7 @@ for t in Toastify.toasts
             Toastify.__reflow(true)
             Toastify._reflowNeeded := false
         }
+        return delay
     }
 
     static __toastByHwnd(hwnd) {
@@ -966,12 +1041,18 @@ for t in Toastify.toasts
         return 0
     }
     static __wake(*) {
-        ; Re-arm the frame loop after an all-static suspension
-        if (Toastify.__suspended) {
-            Toastify.__suspended := false
-            Toastify.__lastTickTime := Toastify.__now()
-            SetTimer(Toastify.__globalTimer, -8)
-        }
+        ; Re-arma el loop tras una suspensión (todo estático) o desde el modo
+        ; semi-idle. NO re-arma si ya corre a máxima velocidad: cada
+        ; WM_MOUSEMOVE (125-1000 Hz) reiniciaba el SetTimer antes de que
+        ; disparara y podía hambrear el tick mientras el cursor estaba encima.
+        if (!Toastify.__active && !Toastify.__suspended)
+            return
+        if (Toastify.__active && !Toastify.__suspended && Toastify.__armedDelay <= 8)
+            return
+        Toastify.__suspended := false
+        Toastify.__lastTickTime := Toastify.__now()
+        Toastify.__armedDelay := 8
+        SetTimer(Toastify.__globalTimer, -8)
     }
     static __trackLeave(hwnd) {
         ; TRACKMOUSEEVENT: DWORD(4)+DWORD(4)+HWND(8)+DWORD(4) = 20 bytes,
@@ -1007,6 +1088,7 @@ for t in Toastify.toasts
     ; ── WM_DPICHANGED: monitor scale changed while toast alive → re-apply
     ;    sizes from base config, resize buffers, reflow (P4) ──
     static __onDpiChanged(hwnd) {
+        ToastDPI.ClearCache()
         t := Toastify.__toastByHwnd(hwnd)
         if !t
             return
@@ -1021,19 +1103,13 @@ for t in Toastify.toasts
 
     static __Click(wParam, lParam, msg, hwnd) {
         Toastify.__wake()
-        for t in Toastify.toasts.Clone()
-            if (t.hwnd == hwnd) {
-                x := lParam & 0xFFFF
-                y := (lParam >> 16) & 0xFFFF
-                try t.OnClick(x, y)
-                return
-            }
-        for t in Toastify.exitingToasts.Clone()
-            if (t.hwnd == hwnd) {
-                x := lParam & 0xFFFF
-                y := (lParam >> 16) & 0xFFFF
-                try t.OnClick(x, y)
-                return
-            }
+        ; O(1) por registry (antes recorría toasts + exitingToasts). El registry
+        ; conserva la entrada hasta Dismiss(), así que cubre también la salida.
+        t := Toastify.__toastByHwnd(hwnd)
+        if !t
+            return
+        x := lParam & 0xFFFF
+        y := (lParam >> 16) & 0xFFFF
+        try t.OnClick(x, y)
     }
 }
